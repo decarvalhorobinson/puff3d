@@ -1,10 +1,8 @@
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use regex::Regex;
-use std::io::prelude::*;
 
-use crate::system::mesh::{Mesh, Vertex, Normal, Uv};
+use crate::system::mesh::{Mesh, Vertex, Normal, Uv, Tangent};
 
 
 pub struct ObjFileToMeshConverter {
@@ -50,7 +48,7 @@ impl ObjFileToMeshConverter {
                         "vt" => {
                             let u = line_parts.next().unwrap().parse::<f32>().unwrap();
                             let v = line_parts.next().unwrap().parse::<f32>().unwrap();
-                            let uv = Uv { uv: [u, v] };
+                            let uv = Uv { uv: [u, -v] };
                             tmp_uvs.push(uv);
                          
                         }
@@ -100,7 +98,7 @@ impl ObjFileToMeshConverter {
             }
         }
 
-        let mut mesh: Mesh = Mesh { vertices: vec![], normals: vec![], uvs: vec![], indices: vec![] };
+        let mut mesh: Mesh = Mesh { vertices: vec![], normals: vec![], uvs: vec![], tangent: vec![], indices: vec![] };
         for i in 0..vertex_indices.len() {
 
            let vertex_index: usize = vertex_indices[i] as usize;
@@ -115,6 +113,37 @@ impl ObjFileToMeshConverter {
            mesh.indices.push(i as u16);
 
         }
+
+        // calculate tangent and bitangent after indices have beeen reorganized
+        for i in (0..mesh.vertices.len()).step_by(3) {
+            // Shortcuts for vertices
+            let v0 = mesh.vertices[i + 0];
+            let v1 = mesh.vertices[i + 1];
+            let v2 = mesh.vertices[i + 2];
+
+            // Shortcuts for UVs
+            let uv0 = mesh.uvs[i + 0];
+            let uv1 = mesh.uvs[i + 1];
+            let uv2 = mesh.uvs[i + 2];
+
+            // Edges of the triangle : position delta
+            let delta_pos1 = v1 - v0;
+            let delta_pos2 = v2 - v0;
+
+            let delta_uv1 = uv1 - uv0;
+            let delta_uv2 = uv2 - uv0;
+
+            let r: f32 = 1.0f32 / (delta_uv1.uv[0] * delta_uv2.uv[1] - delta_uv1.uv[1] * delta_uv2.uv[0]);
+            let tangent = (delta_pos1 * delta_uv2.uv[1] - delta_pos2 * delta_uv1.uv[1]) * r;
+
+            mesh.tangent.push(Tangent{ tangent: tangent.position });
+            mesh.tangent.push(Tangent{ tangent: tangent.position });
+            mesh.tangent.push(Tangent{ tangent: tangent.position });
+
+
+        }
+
+
 
         return mesh;
 

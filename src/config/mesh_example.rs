@@ -6,10 +6,15 @@
 // at your option. All files in the project carrying such
 // notice may not be copied, modified, or distributed except
 // according to those terms.
-use crate::{system::mesh::{Mesh, Normal, Uv, Vertex}, mesh_converters::ObjFileToMeshConverter};
+use crate::{system::mesh::{Mesh, Normal, Vertex}, mesh_converters::ObjFileToMeshConverter};
 
-pub fn get_example_mesh2() -> Mesh {
+pub fn get_example_mesh_cottage_house() -> Mesh {
     let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/cottage_house/cottage.obj"));
+    obj_to_mesh_converter.create_mesh()
+}
+
+pub fn get_example_mesh_brick_wall() -> Mesh {
+    let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
     obj_to_mesh_converter.create_mesh()
 }
 
@@ -3375,7 +3380,5 @@ pub fn get_example_mesh() -> Mesh {
         528, 529, 469, 470, 469, 529, 529, 530, 470u16,
     ];
 
-    let uvs: Vec<Uv> = vec![];
-
-    Mesh::new(vertices, normals, uvs, indices)
+    Mesh::new(vertices, normals, vec![], vec![], indices)
 }

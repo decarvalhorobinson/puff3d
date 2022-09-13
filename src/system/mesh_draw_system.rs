@@ -8,8 +8,10 @@
 // according to those terms.
 
 use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
-use rand::Rng;
-use std::{sync::Arc, time::{Instant, Duration}};
+use std::io::Read;
+use std::io::BufReader;
+use std::fs::File;
+use std::{sync::Arc, io::Cursor};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool},
     command_buffer::{
@@ -27,10 +29,10 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass,
+    render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter}, sync::GpuFuture,
 };
 
-use super::mesh::{Vertex, Normal, Mesh, Uv};
+use super::mesh::{Vertex, Normal, Mesh, Uv, Tangent};
 
 pub struct MeshDrawSystem {
     gfx_queue: Arc<Queue>,
@@ -40,14 +42,23 @@ pub struct MeshDrawSystem {
     normals_buffer: Arc<CpuAccessibleBuffer<[Normal]>>,
     index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
     uniform_buffer: CpuBufferPool<vs::ty::Data>,
-    rotation_start: Instant,
+    rotation_start: f32,
     uv_buffer: Arc<CpuAccessibleBuffer<[Uv]>>,
+    texture_set: Arc<PersistentDescriptorSet>,
+    tangent_buffer: Arc<CpuAccessibleBuffer<[super::mesh::Tangent]>>,
+    normal_set: Arc<PersistentDescriptorSet>
 }
 
 impl MeshDrawSystem {
     /// Initializes a triangle drawing system.
-    pub fn new(gfx_queue: Arc<Queue>, subpass: Subpass, mesh: Mesh) -> MeshDrawSystem {
-        let rotation_start = Instant::now();
+    pub fn new(
+        gfx_queue: Arc<Queue>, 
+        subpass: Subpass, 
+        mesh: Mesh,
+        png_diffuse_path: String,
+        png_normal_path: String,
+    ) -> MeshDrawSystem {
+        let rotation_start = 0.0;
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -87,6 +98,19 @@ impl MeshDrawSystem {
             .expect("failed to create buffer")
         };
 
+        let tangent_buffer = {
+            CpuAccessibleBuffer::from_iter(
+                gfx_queue.device().clone(),
+                BufferUsage {
+                    vertex_buffer: true,
+                    ..BufferUsage::none()
+                },
+                false,
+                mesh.tangent,
+            )
+            .expect("failed to create buffer")
+        };
+
         let index_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -117,7 +141,8 @@ impl MeshDrawSystem {
                     BuffersDefinition::new()
                         .vertex::<Vertex>()
                         .vertex::<Normal>()
-                        .vertex::<Uv>(),
+                        .vertex::<Uv>()
+                        .vertex::<Tangent>(),
                 )
                 .vertex_shader(vs.entry_point("main").unwrap(), ())
                 .input_assembly_state(InputAssemblyState::new())
@@ -129,31 +154,138 @@ impl MeshDrawSystem {
                 .unwrap()
         };
 
+
+        //texture image
+        let (texture, tex_future) = {
+            let f = File::open(png_diffuse_path).unwrap();
+            let mut reader = BufReader::new(f);
+            let mut png_bytes = Vec::new();
+            reader.read_to_end(&mut png_bytes).unwrap();
+
+            let cursor = Cursor::new(png_bytes);
+            let decoder = png::Decoder::new(cursor);
+            let mut reader = decoder.read_info().unwrap();
+            let info = reader.info();
+            let dimensions = ImageDimensions::Dim2d {
+                width: info.width,
+                height: info.height,
+                array_layers: 1,
+            };
+            let mut image_data = Vec::new();
+            image_data.resize((info.width * info.height * 6) as usize, 0);
+            reader.next_frame(&mut image_data).unwrap();
+    
+            let (image, future) = ImmutableImage::from_iter(
+                image_data,
+                dimensions,
+                MipmapsCount::Log2,
+                Format::R8G8B8A8_SRGB,
+                gfx_queue.clone(),
+            )
+            .unwrap();
+            (ImageView::new_default(image).unwrap(), future)
+        };
+    
+        let sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                address_mode: [SamplerAddressMode::Repeat; 3],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let layout = pipeline.layout().set_layouts().get(1).unwrap();
+        let texture_set = PersistentDescriptorSet::new(
+            layout.clone(),
+            [WriteDescriptorSet::image_view_sampler(0, texture, sampler)],
+        )
+        .unwrap();
+
+        // normal
+        //texture image
+        let (normal, normal_future) = {
+            let f = File::open(png_normal_path).unwrap();
+            let mut reader = BufReader::new(f);
+            let mut png_bytes = Vec::new();
+            reader.read_to_end(&mut png_bytes).unwrap();
+
+            let cursor = Cursor::new(png_bytes);
+            let decoder = png::Decoder::new(cursor);
+            let mut reader = decoder.read_info().unwrap();
+            let info = reader.info();
+            let dimensions = ImageDimensions::Dim2d {
+                width: info.width,
+                height: info.height,
+                array_layers: 1,
+            };
+            let mut image_data = Vec::new();
+            image_data.resize((info.width * info.height * 4) as usize, 0);
+            reader.next_frame(&mut image_data).unwrap();
+    
+            let (image, future) = ImmutableImage::from_iter(
+                image_data,
+                dimensions,
+                MipmapsCount::Log2,
+                Format::R8G8B8A8_UNORM,
+                gfx_queue.clone(),
+            )
+            .unwrap();
+            (ImageView::new_default(image).unwrap(), future)
+        };
+    
+        let normal_sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                address_mode: [SamplerAddressMode::Repeat; 3],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let layout = pipeline.layout().set_layouts().get(2).unwrap();
+        let normal_set = PersistentDescriptorSet::new(
+            layout.clone(),
+            [WriteDescriptorSet::image_view_sampler(0, normal, normal_sampler)],
+        )
+        .unwrap();
+
         MeshDrawSystem {
             rotation_start,
             gfx_queue,
             vertex_buffer,
             normals_buffer,
             uv_buffer,
+            tangent_buffer,
             index_buffer,
             uniform_buffer,
             subpass,
             pipeline,
+            texture_set,
+            normal_set
         }
     }
 
     /// Builds a secondary command buffer that draws the triangle on the current subpass.
-    pub fn draw(&self, viewport_dimensions: [u32; 2], screen_to_world: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
+    pub fn draw(&mut self, viewport_dimensions: [u32; 2], screen_to_world: Matrix4<f32>, start_rot: f32, scale: f32) -> SecondaryAutoCommandBuffer {
+
 
         //descriptor set
         let uniform_buffer_subbuffer = {
-            let elapsed = self.rotation_start.elapsed();
-            let angle = elapsed.as_secs() as f64 + elapsed.subsec_nanos() as f64 / 1_000_000_000.0;
+            
+            self.rotation_start = self.rotation_start + 0.01;
+
+            let angle = self.rotation_start + start_rot;
             let rotation = Matrix3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Rad(0 as f32));
+            
             let rotation = rotation * Matrix3::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(angle as f32));
             let rotation = Matrix4::from(rotation) * screen_to_world;
             let view = Matrix4::look_at_rh(
-                Point3::new(0.6, 0.6, -1.0),
+                Point3::new(0.6, 1.0, 1.5),
                 Point3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, -1.0, 0.0),
             );
@@ -164,13 +296,13 @@ impl MeshDrawSystem {
             //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
             let aspect_ratio = viewport_dimensions[0] as f32 / viewport_dimensions[1] as f32;
             let proj = cgmath::perspective(
-                Rad(std::f32::consts::FRAC_PI_2),
+                Rad(std::f32::consts::FRAC_PI_4),
                 aspect_ratio,
                 0.01,
                 100.0,
             );
             
-            let scale = Matrix4::from_scale(0.01);
+            let scale = Matrix4::from_scale(scale);
 
             let uniform_data = vs::ty::Data {
                 world: rotation.into(),
@@ -216,7 +348,19 @@ impl MeshDrawSystem {
                 0,
                 set,
             )
-            .bind_vertex_buffers(0, (self.vertex_buffer.clone(), self.normals_buffer.clone(), self.uv_buffer.clone()))
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline.layout().clone(),
+                1,
+                self.texture_set.clone(),
+            )
+            .bind_descriptor_sets(
+                PipelineBindPoint::Graphics,
+                self.pipeline.layout().clone(),
+                2,
+                self.normal_set.clone(),
+            )
+            .bind_vertex_buffers(0, (self.vertex_buffer.clone(), self.normals_buffer.clone(), self.uv_buffer.clone(), self.tangent_buffer.clone()))
             .bind_index_buffer(self.index_buffer.clone())
             .draw_indexed(self.index_buffer.len() as u32, 1, 0, 0, 0)
             .unwrap();
@@ -233,9 +377,11 @@ mod vs {
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
+layout(location = 3) in vec3 tangent;
 
 layout(location = 0) out vec3 v_normal;
 layout(location = 1) out vec2 v_uv;
+layout(location = 2) out mat3 v_tbn;
 
 layout(set = 0, binding = 0) uniform Data {
     mat4 world;
@@ -245,9 +391,18 @@ layout(set = 0, binding = 0) uniform Data {
 
 void main() {
     mat4 worldview = uniforms.view * uniforms.world;
-    v_normal = transpose(inverse(mat3(worldview))) * normal;
+    v_normal = mat3(worldview) * normal;
+    //v_normal = normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
     v_uv = uv;
+
+    vec3 t = normalize(vec3(worldview * vec4(tangent,   0.0)));
+    vec3 n = normalize(vec3(worldview * vec4(normal,    0.0)));
+
+    t = normalize(t- dot(t, n) * n);
+    vec3 b = cross(n, t);
+
+    v_tbn = mat3(t, b, n);
 }",
 types_meta: {
     use bytemuck::{Pod, Zeroable};
@@ -265,15 +420,20 @@ mod fs {
 
 layout(location = 0) in vec3 v_normal;
 layout(location = 1) in vec2 v_uv;
+layout(location = 2) in mat3 v_tbn;
 layout(location = 0) out vec4 f_color;
 layout(location = 1) out vec3 f_normal;
 
-//layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(set = 1, binding = 0) uniform sampler2D tex;
+layout(set = 2, binding = 0) uniform sampler2D normal_map;
 
 void main() {
-    //f_color = texture(tex, v_uv);
-    f_color = vec4(1,0,0,1);
-    f_normal = v_normal;
+    f_color = texture(tex, v_uv);
+    //f_color = vec4(0.5, 0.5, 0.5, 1.0);
+
+    f_normal = texture(normal_map, v_uv).rgb;
+    f_normal = -(f_normal * 2.0 - 1.0);
+    f_normal = normalize(v_tbn * f_normal);
 }"
     }
 }

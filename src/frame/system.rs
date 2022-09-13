@@ -10,7 +10,7 @@
 use super::{
     ambient_lighting_system::AmbientLightingSystem,
     directional_lighting_system::DirectionalLightingSystem,
-    point_lighting_system::PointLightingSystem,
+    point_lighting_system::PointLightingSystem, point_lighting_phong_system::PointLightingPhongSystem,
 };
 use cgmath::{Matrix4, SquareMatrix, Vector3};
 use std::sync::Arc;
@@ -52,6 +52,8 @@ pub struct FrameSystem {
     directional_lighting_system: DirectionalLightingSystem,
     // Will allow us to add a spot light source to a scene during the second subpass.
     point_lighting_system: PointLightingSystem,
+
+    point_lighting_phong_system: PointLightingPhongSystem,
 }
 
 impl FrameSystem {
@@ -192,7 +194,8 @@ impl FrameSystem {
             AmbientLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
         let directional_lighting_system =
             DirectionalLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
-        let point_lighting_system = PointLightingSystem::new(gfx_queue.clone(), lighting_subpass);
+        let point_lighting_system = PointLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
+        let point_lighting_phong_system = PointLightingPhongSystem::new(gfx_queue.clone(), lighting_subpass);
 
         FrameSystem {
             gfx_queue,
@@ -203,6 +206,7 @@ impl FrameSystem {
             ambient_lighting_system,
             directional_lighting_system,
             point_lighting_system,
+            point_lighting_phong_system,
         }
     }
 
@@ -521,6 +525,27 @@ impl<'f, 's: 'f> LightingPass<'f, 's> {
     pub fn point_light(&mut self, position: Vector3<f32>, color: [f32; 3]) {
         let command_buffer = {
             self.frame.system.point_lighting_system.draw(
+                self.frame.framebuffer.extent(),
+                self.frame.system.diffuse_buffer.clone(),
+                self.frame.system.normals_buffer.clone(),
+                self.frame.system.depth_buffer.clone(),
+                self.frame.world_to_framebuffer.invert().unwrap(),
+                position,
+                color,
+            )
+        };
+
+        self.frame
+            .command_buffer_builder
+            .as_mut()
+            .unwrap()
+            .execute_commands(command_buffer)
+            .unwrap();
+    }
+
+    pub fn point_light_phong(&mut self, position: Vector3<f32>, color: [f32; 3]) {
+        let command_buffer = {
+            self.frame.system.point_lighting_phong_system.draw(
                 self.frame.framebuffer.extent(),
                 self.frame.system.diffuse_buffer.clone(),
                 self.frame.system.normals_buffer.clone(),

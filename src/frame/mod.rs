@@ -17,4 +17,5 @@ pub use self::system::{DrawPass, Frame, FrameSystem, LightingPass, Pass};
 mod ambient_lighting_system;
 mod directional_lighting_system;
 mod point_lighting_system;
+mod point_lighting_phong_system;
 mod system;

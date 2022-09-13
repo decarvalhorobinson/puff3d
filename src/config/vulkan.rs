@@ -114,7 +114,7 @@ fn create_swapchain(
         device.clone(),
         surface.clone(),
         SwapchainCreateInfo {
-            min_image_count: surface_capabilities.min_image_count,
+            min_image_count: surface_capabilities.min_image_count + 1,
             image_format,
             image_extent: surface.window().inner_size().into(),
             image_usage: ImageUsage {
@@ -156,7 +156,22 @@ pub fn vulkan_init() {
 
     // Here is the basic initialization for the deferred system.
     let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
-    let mesh_draw_system = MeshDrawSystem::new(queue.clone(), frame_system.deferred_subpass(), mesh_example::get_example_mesh2());
+    let mut mesh_draw_system_cottage = MeshDrawSystem::new(
+        queue.clone(), 
+        frame_system.deferred_subpass(), 
+        mesh_example::get_example_mesh_cottage_house(),
+        "./src/cottage_house/cottage_diffuse.png".into(),
+        "./src/cottage_house/cottage_normal.png".into(),
+    );
+    let mut mesh_draw_system_plane = MeshDrawSystem::new(
+        queue.clone(), 
+        frame_system.deferred_subpass(), 
+        mesh_example::get_example_mesh_brick_wall(),
+        "./src/brick_wall/brickwall.png".into(),
+        "./src/brick_wall/brickwall_normal.png".into(),
+    );
+    
+
 
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
@@ -179,7 +194,6 @@ pub fn vulkan_init() {
             if dimensions.width == 0 || dimensions.height == 0 {
                 return;
             }
-
             previous_frame_end.as_mut().unwrap().cleanup_finished();
 
             if recreate_swapchain {
@@ -222,15 +236,15 @@ pub fn vulkan_init() {
             while let Some(pass) = frame.next_pass() {
                 match pass {
                     Pass::Deferred(mut draw_pass) => {
-                        let cb = mesh_draw_system.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix());
+                        let cb = mesh_draw_system_cottage.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.05);
+                        draw_pass.execute(cb);
+                        let cb = mesh_draw_system_plane.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.1);
                         draw_pass.execute(cb);
                     }
                     Pass::Lighting(mut lighting) => {
-                        lighting.ambient_light([0.2, 0.2, 0.2]);
-                        lighting.directional_light(Vector3::new(0.2, -0.1, -0.7), [0.6, 0.6, 0.6]);
-                        lighting.point_light(Vector3::new(0.5, -0.5, -0.1), [1.0, 0.0, 0.0]);
-                        lighting.point_light(Vector3::new(-0.9, 0.2, -0.15), [0.0, 1.0, 0.0]);
-                        lighting.point_light(Vector3::new(0.0, 0.5, -0.05), [0.0, 0.0, 1.0]);
+                        //lighting.ambient_light([0.2, 0.2, 0.2]);
+                        lighting.directional_light(Vector3::new(1.0, 1.0, 1.0), [1.0, 1.0, 1.0]);
+                        //lighting.point_light(Vector3::new(0.5, 0.7, 1.1), [1.0, 1.0, 1.0]);
                     }
                     Pass::Finished(af) => {
                         after_future = Some(af);
