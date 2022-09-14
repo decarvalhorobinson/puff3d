@@ -29,12 +29,15 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter}, sync::GpuFuture,
+    render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter},
 };
 
-use crate::scene_pkg::mesh_model::{ Normal, Tangent, Uv, Vertex, Mesh };
+use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
+use crate::scene_pkg::object3d::Object3D;
 
-pub struct MeshDrawSystem {
+#[repr(C)]
+#[derive(Clone)]
+pub struct Object3DDrawSystem {
     gfx_queue: Arc<Queue>,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
     subpass: Subpass,
@@ -46,18 +49,17 @@ pub struct MeshDrawSystem {
     uv_buffer: Arc<CpuAccessibleBuffer<[Uv]>>,
     texture_set: Arc<PersistentDescriptorSet>,
     tangent_buffer: Arc<CpuAccessibleBuffer<[Tangent]>>,
-    normal_set: Arc<PersistentDescriptorSet>
+    normal_set: Arc<PersistentDescriptorSet>,
+    object_3d: Object3D
 }
 
-impl MeshDrawSystem {
+impl Object3DDrawSystem {
     /// Initializes a triangle drawing system.
     pub fn new(
         gfx_queue: Arc<Queue>, 
         subpass: Subpass, 
-        mesh: Mesh,
-        png_diffuse_path: String,
-        png_normal_path: String,
-    ) -> MeshDrawSystem {
+        object_3d: Object3D
+    ) -> Object3DDrawSystem {
         let rotation_start = 0.0;
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
@@ -67,7 +69,7 @@ impl MeshDrawSystem {
                     ..BufferUsage::none()
                 },
                 false,
-                mesh.vertices,
+                object_3d.mesh.vertices.clone(),
             )
             .expect("failed to create buffer")
         };
@@ -80,7 +82,7 @@ impl MeshDrawSystem {
                     ..BufferUsage::none()
                 },
                 false,
-                mesh.normals,
+                object_3d.mesh.normals.clone(),
             )
             .expect("failed to create buffer")
         };
@@ -93,7 +95,7 @@ impl MeshDrawSystem {
                     ..BufferUsage::none()
                 },
                 false,
-                mesh.uvs,
+                object_3d.mesh.uvs.clone(),
             )
             .expect("failed to create buffer")
         };
@@ -106,7 +108,7 @@ impl MeshDrawSystem {
                     ..BufferUsage::none()
                 },
                 false,
-                mesh.tangent,
+                object_3d.mesh.tangent.clone(),
             )
             .expect("failed to create buffer")
         };
@@ -119,7 +121,7 @@ impl MeshDrawSystem {
                     ..BufferUsage::none()
                 },
                 false,
-                mesh.indices,
+                object_3d.mesh.indices.clone(),
             )
             .expect("failed to create buffer")
         };
@@ -157,7 +159,7 @@ impl MeshDrawSystem {
 
         //texture image
         let (texture, tex_future) = {
-            let f = File::open(png_diffuse_path).unwrap();
+            let f = File::open(object_3d.material.diffuse_file_path.clone()).unwrap();
             let mut reader = BufReader::new(f);
             let mut png_bytes = Vec::new();
             reader.read_to_end(&mut png_bytes).unwrap();
@@ -207,7 +209,7 @@ impl MeshDrawSystem {
         // normal
         //texture image
         let (normal, normal_future) = {
-            let f = File::open(png_normal_path).unwrap();
+            let f = File::open(object_3d.material.normal_file_path.clone()).unwrap();
             let mut reader = BufReader::new(f);
             let mut png_bytes = Vec::new();
             reader.read_to_end(&mut png_bytes).unwrap();
@@ -254,7 +256,8 @@ impl MeshDrawSystem {
         )
         .unwrap();
 
-        MeshDrawSystem {
+        Object3DDrawSystem {
+            object_3d,
             rotation_start,
             gfx_queue,
             vertex_buffer,

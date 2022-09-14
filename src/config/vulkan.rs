@@ -19,7 +19,8 @@ use winit::{
 
 use crate::frame::Pass;
 use crate::frame::FrameSystem;
-use crate::system::{mesh_draw_system::MeshDrawSystem};
+use crate::system::draw_system::DrawSystem;
+use crate::system::scene_draw_system::SceneDrawSystem;
 
 use super::mesh_example;
 
@@ -153,24 +154,13 @@ pub fn vulkan_init() {
     let (mut swapchain, mut images) = create_swapchain(device.clone(), surface.clone());
 
 
-
     // Here is the basic initialization for the deferred system.
     let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
-    let mut mesh_draw_system_cottage = MeshDrawSystem::new(
-        queue.clone(), 
-        frame_system.deferred_subpass(), 
-        mesh_example::get_example_mesh_cottage_house(),
-        "./src/cottage_house/cottage_diffuse.png".into(),
-        "./src/cottage_house/cottage_normal.png".into(),
-    );
-    let mut mesh_draw_system_plane = MeshDrawSystem::new(
-        queue.clone(), 
-        frame_system.deferred_subpass(), 
-        mesh_example::get_example_mesh_brick_wall(),
-        "./src/brick_wall/brickwall.png".into(),
-        "./src/brick_wall/brickwall_normal.png".into(),
-    );
-    
+    let draw_system = DrawSystem {
+        gfx_queue: queue.clone(),
+        render_pass: frame_system.render_pass.clone()
+    };
+    let mut scene_draw_system = SceneDrawSystem::new(mesh_example::get_example_scene_cottage_house(), Arc::new(draw_system));
 
 
     let mut recreate_swapchain = false;
@@ -236,10 +226,9 @@ pub fn vulkan_init() {
             while let Some(pass) = frame.next_pass() {
                 match pass {
                     Pass::Deferred(mut draw_pass) => {
-                        let cb = mesh_draw_system_cottage.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.05);
-                        draw_pass.execute(cb);
-                        let cb = mesh_draw_system_plane.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.1);
-                        draw_pass.execute(cb);
+                        //let cb = mesh_draw_system_cottage.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.05);
+                        //draw_pass.execute(cb);
+                        scene_draw_system.draw(draw_pass);
                     }
                     Pass::Lighting(mut lighting) => {
                         //lighting.ambient_light([0.2, 0.2, 0.2]);

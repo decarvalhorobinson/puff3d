@@ -229,6 +229,8 @@ void main() {
 
     vec3 in_diffuse = subpassLoad(u_diffuse).rgb;
     f_color.rgb = light_percent * push_constants.color.rgb * in_diffuse;
+    // test too see if color shows, please remove
+    //f_color= vec4(1.0f, 0.0f, 0.0f, 1.0f);
     f_color.a = 1.0;
 }",
         types_meta: {

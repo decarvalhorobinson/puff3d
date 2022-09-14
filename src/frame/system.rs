@@ -34,7 +34,7 @@ pub struct FrameSystem {
     // Render pass used for the drawing. See the `new` method for the actual render pass content.
     // We need to keep it in `FrameSystem` because we may want to recreate the intermediate buffers
     // in of a change in the dimensions.
-    render_pass: Arc<RenderPass>,
+    pub render_pass: Arc<RenderPass>,
 
     // Intermediate render target that will contain the albedo of each pixel of the scene.
     diffuse_buffer: Arc<ImageView<AttachmentImage>>,

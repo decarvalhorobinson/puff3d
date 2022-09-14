@@ -7,16 +7,76 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use crate::{scene_pkg::mesh_model::{Vertex, Mesh, Normal}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
+use crate::{scene_pkg::{mesh::{Vertex, Mesh, Normal}, scene::Scene, camera::Camera, directional_ligh::DirectionalLight, object3d::Object3D}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
 
 pub fn get_example_mesh_cottage_house() -> Mesh {
     let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/cottage_house/cottage.obj"));
     obj_to_mesh_converter.create_mesh()
 }
 
-pub fn get_example_mesh_brick_wall() -> Mesh {
+pub fn get_example_scene_cottage_house() -> Scene {
+    
+    let mut scene = Scene {
+        cameras: vec![],
+        active_camera: Camera::new(),
+        objects: vec![],
+        directional_lights: vec![
+            DirectionalLight {
+                direction: [1.0, 1.0, 1.0], 
+                color: [1.0, 1.0, 1.0],
+            }
+        ]
+
+    };
+
+    
+
+    
+
+    
+
+    //let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
+    //let mut obj = Object3D::new();
+    //obj.mesh = obj_to_mesh_converter.create_mesh();
+    //obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
+    //obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
+    //scene.objects.push(obj);
+
+    let mut obj = Object3D::new();
+    obj.mesh = get_example_mesh_cottage_house();
+    obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();
+    obj.material.normal_file_path = "./src/cottage_house/cottage_normal.png".into();
+    scene.objects.push(obj);
+
+    scene
+}
+
+pub fn get_example_scene_brick_wall() -> Scene {
+
+    let mut scene = Scene {
+        cameras: vec![],
+        active_camera: Camera::new(),
+        objects: vec![],
+        directional_lights: vec![
+            DirectionalLight {
+                direction: [1.0, 1.0, 1.0], 
+                color: [1.0, 1.0, 1.0],
+            }
+        ]
+
+    };
+
     let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
-    obj_to_mesh_converter.create_mesh()
+    
+
+    let mut obj = Object3D::new();
+    obj.mesh = obj_to_mesh_converter.create_mesh();
+    obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
+    obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
+
+    scene.objects.push(obj);
+
+    scene
 }
 
 pub fn get_example_mesh() -> Mesh {

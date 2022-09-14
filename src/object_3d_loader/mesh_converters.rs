@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-use crate::scene_pkg::mesh_model::{Mesh, Vertex, Normal, Uv, Tangent};
+use crate::scene_pkg::mesh::{Mesh, Vertex, Normal, Uv, Tangent};
 
 
 pub struct ObjFileToMeshConverter {
@@ -18,8 +18,6 @@ impl ObjFileToMeshConverter {
     }
     //public methods
     pub fn create_mesh(&self) -> Mesh{
-        let mesh: Mesh;
-
         let mut vertex_indices: Vec<u16> = vec![];
         let mut uv_indices: Vec<u16> = vec![];
         let mut normal_indices: Vec<u16> = vec![];
