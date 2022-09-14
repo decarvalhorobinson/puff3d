@@ -274,43 +274,18 @@ impl Object3DDrawSystem {
     }
 
     /// Builds a secondary command buffer that draws the triangle on the current subpass.
-    pub fn draw(&mut self, viewport_dimensions: [u32; 2], screen_to_world: Matrix4<f32>, start_rot: f32, scale: f32) -> SecondaryAutoCommandBuffer {
+    pub fn draw(&mut self, viewport_dimensions: [u32; 2], world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
 
 
         //descriptor set
         let uniform_buffer_subbuffer = {
-            
-            self.rotation_start = self.rotation_start + 0.01;
-
-            let angle = self.rotation_start + start_rot;
-            let rotation = Matrix3::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Rad(0 as f32));
-            
-            let rotation = rotation * Matrix3::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(angle as f32));
-            let rotation = Matrix4::from(rotation) * screen_to_world;
-            let view = Matrix4::look_at_rh(
-                Point3::new(0.6, 1.0, 1.5),
-                Point3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, -1.0, 0.0),
-            );
-            
-
-
-            // note: this teapot was meant for OpenGL where the origin is at the lower left
-            //       instead the origin is at the upper left in Vulkan, so we reverse the Y axis
-            let aspect_ratio = viewport_dimensions[0] as f32 / viewport_dimensions[1] as f32;
-            let proj = cgmath::perspective(
-                Rad(std::f32::consts::FRAC_PI_4),
-                aspect_ratio,
-                0.01,
-                100.0,
-            );
-            
-            let scale = Matrix4::from_scale(scale);
+            let scale = Matrix4::from_scale(0.05);
 
             let uniform_data = vs::ty::Data {
-                world: rotation.into(),
+                model: self.object_3d.model_matrix.into(),
+                world: world.into(),
                 view: (view * scale).into(),
-                proj: proj.into(),
+                proj: projection.into(),
             };
 
             self.uniform_buffer.next(uniform_data).unwrap()
@@ -387,13 +362,14 @@ layout(location = 1) out vec2 v_uv;
 layout(location = 2) out mat3 v_tbn;
 
 layout(set = 0, binding = 0) uniform Data {
+    mat4 model;
     mat4 world;
     mat4 view;
     mat4 proj;
 } uniforms;
 
 void main() {
-    mat4 worldview = uniforms.view * uniforms.world;
+    mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
     v_normal = mat3(worldview) * normal;
     //v_normal = normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);

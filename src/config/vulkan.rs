@@ -225,15 +225,13 @@ pub fn vulkan_init() {
             let mut after_future = None;
             while let Some(pass) = frame.next_pass() {
                 match pass {
-                    Pass::Deferred(mut draw_pass) => {
-                        //let cb = mesh_draw_system_cottage.draw(draw_pass.viewport_dimensions(), draw_pass.world_to_framebuffer_matrix(), 10.0, 0.05);
-                        //draw_pass.execute(cb);
+                    Pass::Deferred(draw_pass) => {
                         scene_draw_system.draw(draw_pass);
                     }
                     Pass::Lighting(mut lighting) => {
-                        //lighting.ambient_light([0.2, 0.2, 0.2]);
+                        lighting.ambient_light([0.2, 0.2, 0.2]);
                         lighting.directional_light(Vector3::new(1.0, 1.0, 1.0), [1.0, 1.0, 1.0]);
-                        //lighting.point_light(Vector3::new(0.5, 0.7, 1.1), [1.0, 1.0, 1.0]);
+                        lighting.point_light(Vector3::new(0.5, 0.7, 1.1), [1.0, 1.0, 1.0]);
                     }
                     Pass::Finished(af) => {
                         after_future = Some(af);

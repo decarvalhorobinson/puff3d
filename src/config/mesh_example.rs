@@ -7,6 +7,8 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use cgmath::Vector3;
+
 use crate::{scene_pkg::{mesh::{Vertex, Mesh, Normal}, scene::Scene, camera::Camera, directional_ligh::DirectionalLight, object3d::Object3D}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
 
 pub fn get_example_mesh_cottage_house() -> Mesh {
@@ -29,23 +31,20 @@ pub fn get_example_scene_cottage_house() -> Scene {
 
     };
 
-    
-
-    
-
-    
-
-    //let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
-    //let mut obj = Object3D::new();
-    //obj.mesh = obj_to_mesh_converter.create_mesh();
-    //obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
-    //obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
-    //scene.objects.push(obj);
+    let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
+    let mut obj = Object3D::new();
+    obj.mesh = obj_to_mesh_converter.create_mesh();
+    obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
+    obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
+    scene.objects.push(obj);
 
     let mut obj = Object3D::new();
     obj.mesh = get_example_mesh_cottage_house();
     obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();
     obj.material.normal_file_path = "./src/cottage_house/cottage_normal.png".into();
+    obj.transform.scale = Vector3::new(0.5, 0.5, 0.5);
+    obj.transform.rotation[0] += 10.0;  
+    obj.update_model_matrix();
     scene.objects.push(obj);
 
     scene

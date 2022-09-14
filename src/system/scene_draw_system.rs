@@ -8,19 +8,18 @@ use super::{draw_system::DrawSystem, object_3d_draw_system::Object3DDrawSystem};
 
 pub struct SceneDrawSystem {
     rotation_test: f32,
-    mesh_draw_systems: Vec<Object3DDrawSystem>,
-    scene: Scene,
-    draw_system: Arc<DrawSystem>
+    obj_draw_systems: Vec<Object3DDrawSystem>,
+    scene: Scene
 }
 
 impl SceneDrawSystem {
     // public methods
     pub fn new(scene: Scene, draw_system: Arc<DrawSystem>) -> SceneDrawSystem {
 
-        let mut mesh_draw_systems: Vec<Object3DDrawSystem> = vec![];
-        mesh_draw_systems.reserve(scene.objects.len());
+        let mut obj_draw_systems: Vec<Object3DDrawSystem> = vec![];
+        obj_draw_systems.reserve(scene.objects.len());
         for object_3d in scene.objects.clone()  {
-            mesh_draw_systems.push(Object3DDrawSystem::new(
+            obj_draw_systems.push(Object3DDrawSystem::new(
                 draw_system.gfx_queue.clone(), 
                 Subpass::from(draw_system.render_pass.clone(), 0).unwrap(),
                 object_3d
@@ -31,8 +30,7 @@ impl SceneDrawSystem {
         SceneDrawSystem {
             rotation_test: 0.0f32,
             scene: scene.clone(),
-            draw_system: draw_system.clone(),
-            mesh_draw_systems: mesh_draw_systems
+            obj_draw_systems: obj_draw_systems
         }
     }
 
@@ -42,15 +40,15 @@ impl SceneDrawSystem {
         let viewport_dimensions = draw_pass.viewport_dimensions();
         let aspect_ratio = viewport_dimensions[0] as f32 / viewport_dimensions[1] as f32;
         let projection = cgmath::perspective(
-            Rad(std::f32::consts::FRAC_PI_2),
+            Rad(std::f32::consts::FRAC_PI_4),
             aspect_ratio,
             0.01,
             100.0,
         );
 
-        for i in 0..self.mesh_draw_systems.len() {
-            let mut mesh_draw_system = self.mesh_draw_systems[i].clone();
-            let cb = mesh_draw_system.draw(viewport_dimensions, world, 10.0, 0.05);
+        for i in 0..self.obj_draw_systems.len() {
+            let mut obj_draw_systems = self.obj_draw_systems[i].clone();
+            let cb = obj_draw_systems.draw(viewport_dimensions, world, projection, self.scene.active_camera.get_view_matrix());
             draw_pass.execute(cb);
         }
 
