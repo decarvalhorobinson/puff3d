@@ -6,7 +6,8 @@
 // at your option. All files in the project carrying such
 // notice may not be copied, modified, or distributed except
 // according to those terms.
-use crate::{system::mesh::{Mesh, Normal, Vertex}, mesh_converters::ObjFileToMeshConverter};
+
+use crate::{scene_pkg::mesh_model::{Vertex, Mesh, Normal}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
 
 pub fn get_example_mesh_cottage_house() -> Mesh {
     let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/cottage_house/cottage.obj"));

@@ -32,7 +32,7 @@ use vulkano::{
     render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter}, sync::GpuFuture,
 };
 
-use super::mesh::{Vertex, Normal, Mesh, Uv, Tangent};
+use crate::scene_pkg::mesh_model::{ Normal, Tangent, Uv, Vertex, Mesh };
 
 pub struct MeshDrawSystem {
     gfx_queue: Arc<Queue>,
@@ -45,7 +45,7 @@ pub struct MeshDrawSystem {
     rotation_start: f32,
     uv_buffer: Arc<CpuAccessibleBuffer<[Uv]>>,
     texture_set: Arc<PersistentDescriptorSet>,
-    tangent_buffer: Arc<CpuAccessibleBuffer<[super::mesh::Tangent]>>,
+    tangent_buffer: Arc<CpuAccessibleBuffer<[Tangent]>>,
     normal_set: Arc<PersistentDescriptorSet>
 }
 

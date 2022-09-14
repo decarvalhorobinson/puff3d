@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
 
-use crate::system::mesh::{Mesh, Vertex, Normal, Uv, Tangent};
+use crate::scene_pkg::mesh_model::{Mesh, Vertex, Normal, Uv, Tangent};
 
 
 pub struct ObjFileToMeshConverter {
