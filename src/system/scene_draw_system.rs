@@ -48,7 +48,7 @@ impl SceneDrawSystem {
 
         for i in 0..self.obj_draw_systems.len() {
             let mut obj_draw_systems = self.obj_draw_systems[i].clone();
-            let cb = obj_draw_systems.draw(viewport_dimensions, world, projection, self.scene.active_camera.get_view_matrix());
+            let cb = obj_draw_systems.draw_deferred(viewport_dimensions, world, projection, self.scene.active_camera.get_view_matrix());
             draw_pass.execute(cb);
         }
 
