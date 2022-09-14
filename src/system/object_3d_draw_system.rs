@@ -35,6 +35,8 @@ use vulkano::{
 use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
 use crate::scene_pkg::object3d::Object3D;
 
+use super::draw_system::DrawSystem;
+
 #[repr(C)]
 #[derive(Clone)]
 pub struct Buffers {
@@ -52,10 +54,11 @@ pub struct Buffers {
 #[derive(Clone)]
 pub struct Object3DDrawSystem {
     object_3d: Object3D,
-    gfx_queue: Arc<Queue>,
-    subpass: Subpass,
+    draw_system: Arc<DrawSystem>,
     pipeline_deferred: Arc<GraphicsPipeline>,
     pipeline_depth: Arc<GraphicsPipeline>,
+    subpass_deferred: Subpass,
+    subpass_depth: Subpass, 
     diffuse_set: Arc<PersistentDescriptorSet>,
     normal_set: Arc<PersistentDescriptorSet>,
     buffers: Buffers
@@ -64,28 +67,32 @@ pub struct Object3DDrawSystem {
 impl Object3DDrawSystem {
     /// Initializes a triangle drawing system.
     pub fn new(
-        gfx_queue: Arc<Queue>, 
-        subpass: Subpass, 
+        draw_system: Arc<DrawSystem>, 
         object_3d: Object3D
     ) -> Object3DDrawSystem {
 
-        let buffers = Object3DDrawSystem::create_buffers(gfx_queue.clone(), object_3d.clone());
+        let subpass_depth = Subpass::from(draw_system.render_pass.clone(), 0).unwrap();
 
-        let pipeline_deferred = Object3DDrawSystem::create_deferred_pipeline(gfx_queue.clone(), subpass.clone());
+        let subpass_deferred = Subpass::from(draw_system.render_pass.clone(), 1).unwrap();
 
-        let pipeline_depth = Object3DDrawSystem::create_depth_pipeline(gfx_queue.clone(), subpass.clone());
+        let buffers = Object3DDrawSystem::create_buffers(draw_system.gfx_queue.clone(), object_3d.clone());
 
-        let diffuse_set = Object3DDrawSystem::create_diffuse_set(gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
+        let pipeline_depth = Object3DDrawSystem::create_depth_pipeline(draw_system.gfx_queue.clone(), subpass_depth.clone());
+
+        let pipeline_deferred = Object3DDrawSystem::create_deferred_pipeline(draw_system.gfx_queue.clone(), subpass_deferred.clone());
+
+        let diffuse_set = Object3DDrawSystem::create_diffuse_set(draw_system.gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
     
-        let normal_set = Object3DDrawSystem::create_normal_set(gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
+        let normal_set = Object3DDrawSystem::create_normal_set(draw_system.gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
 
         Object3DDrawSystem {
             object_3d,
-            gfx_queue,
-            subpass,
+            draw_system,
             buffers,
             pipeline_deferred,
             pipeline_depth,
+            subpass_depth,
+            subpass_deferred,
             diffuse_set,
             normal_set
         }
@@ -117,11 +124,11 @@ impl Object3DDrawSystem {
         //end descriptor set
 
         let mut builder = AutoCommandBufferBuilder::secondary(
-            self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.draw_system.gfx_queue.device().clone(),
+            self.draw_system.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
+                render_pass: Some(self.subpass_deferred.clone().into()),
                 ..Default::default()
             },
         )
@@ -187,11 +194,11 @@ impl Object3DDrawSystem {
         //end descriptor set
 
         let mut builder = AutoCommandBufferBuilder::secondary(
-            self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.draw_system.gfx_queue.device().clone(),
+            self.draw_system.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass.clone().into()),
+                render_pass: Some(self.subpass_depth.clone().into()),
                 ..Default::default()
             },
         )
@@ -210,19 +217,7 @@ impl Object3DDrawSystem {
                 PipelineBindPoint::Graphics,
                 self.pipeline_depth.layout().clone(),
                 0,
-                set,
-            )
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.pipeline_depth.layout().clone(),
-                1,
-                self.diffuse_set.clone(),
-            )
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.pipeline_depth.layout().clone(),
-                2,
-                self.normal_set.clone(),
+                set
             )
             .bind_vertex_buffers(0, (self.buffers.vertex_buffer.clone()))
             .bind_index_buffer(self.buffers.index_buffer.clone())
@@ -571,11 +566,9 @@ mod fs_depth {
 #version 450
 
 
-layout(location = 0) out vec4 f_color;
 
 
 void main() {
-    f_color = vec4(1.0, 0.0, 0.0, 1.0);
 }"
     }
 }

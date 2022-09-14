@@ -20,8 +20,7 @@ impl SceneDrawSystem {
         obj_draw_systems.reserve(scene.objects.len());
         for object_3d in scene.objects.clone()  {
             obj_draw_systems.push(Object3DDrawSystem::new(
-                draw_system.gfx_queue.clone(), 
-                Subpass::from(draw_system.render_pass.clone(), 0).unwrap(),
+                draw_system.clone(),
                 object_3d
             ));
         }
@@ -34,7 +33,7 @@ impl SceneDrawSystem {
         }
     }
 
-    pub fn draw(&mut self, mut draw_pass: DrawPass) {
+    pub fn draw_deferred(&mut self, mut draw_pass: DrawPass) {
         self.rotation_test += 0.01;
         let world = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(self.rotation_test as f32));
         let viewport_dimensions = draw_pass.viewport_dimensions();
@@ -49,6 +48,27 @@ impl SceneDrawSystem {
         for i in 0..self.obj_draw_systems.len() {
             let mut obj_draw_systems = self.obj_draw_systems[i].clone();
             let cb = obj_draw_systems.draw_deferred(viewport_dimensions, world, projection, self.scene.active_camera.get_view_matrix());
+            draw_pass.execute(cb);
+        }
+
+
+    }
+
+    pub fn draw_depth(&mut self, mut draw_pass: DrawPass) {
+        self.rotation_test += 0.01;
+        let world = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(self.rotation_test as f32));
+        let viewport_dimensions = draw_pass.viewport_dimensions();
+        let aspect_ratio = viewport_dimensions[0] as f32 / viewport_dimensions[1] as f32;
+        let projection = cgmath::perspective(
+            Rad(std::f32::consts::FRAC_PI_4),
+            aspect_ratio,
+            0.01,
+            100.0,
+        );
+
+        for i in 0..self.obj_draw_systems.len() {
+            let mut obj_draw_systems = self.obj_draw_systems[i].clone();
+            let cb = obj_draw_systems.draw_depth(viewport_dimensions, world, projection, self.scene.active_camera.get_view_matrix());
             draw_pass.execute(cb);
         }
 

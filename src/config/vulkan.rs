@@ -225,8 +225,11 @@ pub fn vulkan_init() {
             let mut after_future = None;
             while let Some(pass) = frame.next_pass() {
                 match pass {
+                    Pass::Shadow(draw_pass) => {
+                        scene_draw_system.draw_depth(draw_pass);
+                    }
                     Pass::Deferred(draw_pass) => {
-                        scene_draw_system.draw(draw_pass);
+                        scene_draw_system.draw_deferred(draw_pass);
                     }
                     Pass::Lighting(mut lighting) => {
                         lighting.ambient_light([0.2, 0.2, 0.2]);

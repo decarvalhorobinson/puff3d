@@ -46,6 +46,8 @@ pub struct FrameSystem {
     // This is a traditional depth buffer. `0.0` means "near", and `1.0` means "far".
     depth_buffer: Arc<ImageView<AttachmentImage>>,
 
+    light_camera_depth_buffer: Arc<ImageView<AttachmentImage>>,
+
     // Will allow us to add an ambient lighting to a scene during the second subpass.
     ambient_lighting_system: AmbientLightingSystem,
     // Will allow us to add a directional light to a scene during the second subpass.
@@ -123,9 +125,22 @@ impl FrameSystem {
                     store: DontCare,
                     format: Format::D16_UNORM,
                     samples: 1,
+                },
+                // Will be boung to `self.light_camera_depth`
+                light_camera_depth: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::D16_UNORM,
+                    samples: 1,
                 }
             },
             passes: [
+                // Write to the shadow map.
+                {
+                    color: [],
+                    depth_stencil: {light_camera_depth},
+                    input: []
+                },
                 // Write to the diffuse, normals and depth attachments.
                 {
                     color: [diffuse, normals],
@@ -136,7 +151,7 @@ impl FrameSystem {
                 {
                     color: [final_color],
                     depth_stencil: {},
-                    input: [diffuse, normals, depth]
+                    input: [diffuse, normals, depth, light_camera_depth]
                 }
             ]
         )
@@ -186,10 +201,24 @@ impl FrameSystem {
             .unwrap(),
         )
         .unwrap();
+        let light_camera_depth_buffer = ImageView::new_default(
+            AttachmentImage::with_usage(
+                gfx_queue.device().clone(),
+                [1, 1],
+                Format::D16_UNORM,
+                ImageUsage {
+                    transient_attachment: true,
+                    input_attachment: true,
+                    ..ImageUsage::none()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         // Initialize the three lighting systems.
         // Note that we need to pass to them the subpass where they will be executed.
-        let lighting_subpass = Subpass::from(render_pass.clone(), 1).unwrap();
+        let lighting_subpass = Subpass::from(render_pass.clone(), 2).unwrap();
         let ambient_lighting_system =
             AmbientLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
         let directional_lighting_system =
@@ -203,6 +232,7 @@ impl FrameSystem {
             diffuse_buffer,
             normals_buffer,
             depth_buffer,
+            light_camera_depth_buffer,
             ambient_lighting_system,
             directional_lighting_system,
             point_lighting_system,
@@ -288,6 +318,20 @@ impl FrameSystem {
                 .unwrap(),
             )
             .unwrap();
+            self.light_camera_depth_buffer = ImageView::new_default(
+                AttachmentImage::with_usage(
+                    self.gfx_queue.device().clone(),
+                    img_dims,
+                    Format::D16_UNORM,
+                    ImageUsage {
+                        transient_attachment: true,
+                        input_attachment: true,
+                        ..ImageUsage::none()
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap();
         }
 
         // Build the framebuffer. The image must be attached in the same order as they were defined
@@ -300,6 +344,7 @@ impl FrameSystem {
                     self.diffuse_buffer.clone(),
                     self.normals_buffer.clone(),
                     self.depth_buffer.clone(),
+                    self.light_camera_depth_buffer.clone()
                 ],
                 ..Default::default()
             },
@@ -320,6 +365,7 @@ impl FrameSystem {
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some(1.0f32.into()),
                         Some(1.0f32.into()),
                     ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
@@ -380,10 +426,24 @@ impl<'a> Frame<'a> {
                 // We already called `begin_render_pass` (in the `frame()` method), and that's the
                 // state we are in.
                 // We return an object that will allow the user to draw objects on the scene.
-                Some(Pass::Deferred(DrawPass { frame: self }))
+                Some(Pass::Shadow(DrawPass { frame: self }))
             }
 
             1 => {
+                // If we are in the pass 0 then we haven't start anything yet.
+                // We already called `begin_render_pass` (in the `frame()` method), and that's the
+                // state we are in.
+                // We return an object that will allow the user to draw objects on the scene.
+                self.command_buffer_builder
+                    .as_mut()
+                    .unwrap()
+                    .next_subpass(SubpassContents::SecondaryCommandBuffers)
+                    .unwrap();
+
+                Some(Pass::Deferred(DrawPass { frame: self }))
+            }
+
+            2 => {
                 // If we are in pass 1 then we have finished drawing the objects on the scene.
                 // Going to the next subpass.
                 self.command_buffer_builder
@@ -396,7 +456,7 @@ impl<'a> Frame<'a> {
                 Some(Pass::Lighting(LightingPass { frame: self }))
             }
 
-            2 => {
+            3 => {
                 // If we are in pass 2 then we have finished applying lighting.
                 // We take the builder, call `end_render_pass()`, and then `build()` it to obtain
                 // an actual command buffer.
@@ -427,6 +487,9 @@ impl<'a> Frame<'a> {
 
 /// Struct provided to the user that allows them to customize or handle the pass.
 pub enum Pass<'f, 's: 'f> {
+    /// Shadow map pass
+    Shadow(DrawPass<'f, 's>),
+
     /// We are in the pass where we draw objects on the scene. The `DrawPass` allows the user to
     /// draw the objects.
     Deferred(DrawPass<'f, 's>),
