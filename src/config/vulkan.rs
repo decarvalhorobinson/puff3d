@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use cgmath::{Matrix4, SquareMatrix, Vector3};
+use cgmath::{Matrix4, SquareMatrix, Vector3, Rad};
 use vulkano::device::{Device, DeviceExtensions, DeviceCreateInfo, QueueCreateInfo};
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::image::ImageUsage;
+use vulkano::format::Format;
+use vulkano::image::{ImageUsage, StorageImage, ImageDimensions, AttachmentImage};
 use vulkano::image::view::ImageView;
 use vulkano::instance::{Instance, InstanceCreateInfo};
 
@@ -17,8 +18,11 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::frame::Pass;
+use crate::frame::scene_shadow_pass::SceneShadowPass;
+use crate::frame::{Pass, scene_shadow_pass};
 use crate::frame::FrameSystem;
+use crate::frame::shadow_map_renderer::ShadowMapRenderer;
+use crate::scene_pkg::scene::Scene;
 use crate::system::draw_system::DrawSystem;
 use crate::system::scene_draw_system::SceneDrawSystem;
 
@@ -153,19 +157,26 @@ pub fn vulkan_init() {
     // create swapchain and the images
     let (mut swapchain, mut images) = create_swapchain(device.clone(), surface.clone());
 
-
-    // Here is the basic initialization for the deferred system.
-    let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
-    let draw_system = DrawSystem {
-        gfx_queue: queue.clone(),
-        render_pass: frame_system.render_pass.clone()
-    };
-    let mut scene_draw_system = SceneDrawSystem::new(mesh_example::get_example_scene_cottage_house(), Arc::new(draw_system));
+    //create scene, should be unique for everything
+    let scene = mesh_example::get_example_scene_cottage_house();
 
 
+   // Here is the basic initialization for the deferred system.
+   let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
+   let draw_system = DrawSystem {
+       gfx_queue: queue.clone(),
+       render_pass: frame_system.render_pass.clone()
+   };
+   let mut scene_draw_system = SceneDrawSystem::new(scene.clone(), Arc::new(draw_system));
+
+    let mut shadow_map_renderer = ShadowMapRenderer::new(queue.clone(), scene.clone());
+    let mut scene_shadow_pass = SceneShadowPass::new(scene.clone(), &shadow_map_renderer);
+    
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+    
+    let mut rotation = 0.0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -219,30 +230,32 @@ pub fn vulkan_init() {
                 recreate_swapchain = true;
             }
 
+
             let future = previous_frame_end.take().unwrap().join(acquire_future);
 
-            let mut frame = frame_system.frame(future, images[image_num].clone(), Matrix4::identity());
-            let mut after_future = None;
+            shadow_map_renderer.begin_render_pass();
+            scene_shadow_pass.draw(&mut shadow_map_renderer);
+            let mut after_future = Some(shadow_map_renderer.end_render_pass(future));
+
+
+            let mut after_future2 = None;
+            let mut frame = frame_system.frame(after_future.unwrap(), images[image_num].clone(), Matrix4::identity(), shadow_map_renderer.final_image.clone());
             while let Some(pass) = frame.next_pass() {
                 match pass {
-                    Pass::Shadow(draw_pass) => {
-                        scene_draw_system.draw_depth(draw_pass);
-                    }
                     Pass::Deferred(draw_pass) => {
                         scene_draw_system.draw_deferred(draw_pass);
                     }
                     Pass::Lighting(mut lighting) => {
-                        lighting.ambient_light([0.2, 0.2, 0.2]);
-                        lighting.directional_light(Vector3::new(1.0, 1.0, 1.0), [1.0, 1.0, 1.0]);
-                        lighting.point_light(Vector3::new(0.5, 0.7, 1.1), [1.0, 1.0, 1.0]);
+                        let (light_view, light_projection) = scene.directional_lights[0].clone().view_projection();
+                        lighting.directional_light(scene.directional_lights[0].clone().direction(), [1.0, 1.0, 1.0], light_view, light_projection, scene.world_model * scene.active_camera.get_view_matrix());
                     }
                     Pass::Finished(af) => {
-                        after_future = Some(af);
+                        after_future2 = Some(af);
                     }
                 }
             }
 
-            let future = after_future
+            let future = after_future2
                 .unwrap()
                 .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                 .then_signal_fence_and_flush();

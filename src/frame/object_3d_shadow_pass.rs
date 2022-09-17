@@ -71,7 +71,7 @@ impl Object3DShadowPass{
     }
 
 
-    pub fn draw(&mut self, shadow_map_renderer: &ShadowMapRenderer,  world: Matrix4<f32>, view: Matrix4<f32>, projection: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
+    pub fn draw(&mut self, shadow_map_renderer: &ShadowMapRenderer,  world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
 
         let viewport_dimensions = shadow_map_renderer.viewport_dimensions();
         //descriptor set
@@ -79,7 +79,8 @@ impl Object3DShadowPass{
             let scale = Matrix4::from_scale(0.05);
 
             let uniform_data = vs_depth::ty::Data {
-                model: (self.object_3d.model_matrix * world).into(),
+                model: self.object_3d.model_matrix.into(),
+                world: world.into(),
                 view: (view * scale).into(),
                 proj: projection.into(),
             };
@@ -201,13 +202,14 @@ layout(location = 0) in vec3 position;
 
 layout(set = 0, binding = 0) uniform Data {
     mat4 model;
+    mat4 world;
     mat4 view;
     mat4 proj;
 } uniforms;
 
 void main() {
-    mat4 view_model = uniforms.view * uniforms.model;
-    gl_Position = uniforms.proj * view_model * vec4(position, 1.0);
+    mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
+    gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
 
 }",
 types_meta: {

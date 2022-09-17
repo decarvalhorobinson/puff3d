@@ -7,10 +7,10 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use crate::scene_pkg::scene::Scene;
+
 use super::{
-    ambient_lighting_system::AmbientLightingSystem,
     directional_lighting_system::DirectionalLightingSystem,
-    point_lighting_system::PointLightingSystem, point_lighting_phong_system::PointLightingPhongSystem,
 };
 use cgmath::{Matrix4, SquareMatrix, Vector3};
 use std::sync::Arc;
@@ -21,7 +21,7 @@ use vulkano::{
     },
     device::Queue,
     format::Format,
-    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, ImageViewAbstract},
+    image::{view::ImageView, AttachmentImage, ImageAccess, ImageUsage, ImageViewAbstract, StorageImage},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
 };
@@ -36,6 +36,7 @@ pub struct FrameSystem {
     // in of a change in the dimensions.
     pub render_pass: Arc<RenderPass>,
 
+    position_buffer: Arc<ImageView<AttachmentImage>>,
     // Intermediate render target that will contain the albedo of each pixel of the scene.
     diffuse_buffer: Arc<ImageView<AttachmentImage>>,
     // Intermediate render target that will contain the normal vector in world coordinates of each
@@ -46,55 +47,12 @@ pub struct FrameSystem {
     // This is a traditional depth buffer. `0.0` means "near", and `1.0` means "far".
     depth_buffer: Arc<ImageView<AttachmentImage>>,
 
-    light_camera_depth_buffer: Arc<ImageView<AttachmentImage>>,
-
-    // Will allow us to add an ambient lighting to a scene during the second subpass.
-    ambient_lighting_system: AmbientLightingSystem,
     // Will allow us to add a directional light to a scene during the second subpass.
     directional_lighting_system: DirectionalLightingSystem,
-    // Will allow us to add a spot light source to a scene during the second subpass.
-    point_lighting_system: PointLightingSystem,
-
-    point_lighting_phong_system: PointLightingPhongSystem,
 }
 
 impl FrameSystem {
-    /// Initializes the frame system.
-    ///
-    /// Should be called at initialization, as it can take some time to build.
-    ///
-    /// - `gfx_queue` is the queue that will be used to perform the main rendering.
-    /// - `final_output_format` is the format of the image that will later be passed to the
-    ///   `frame()` method. We need to know that in advance. If that format ever changes, we have
-    ///   to create a new `FrameSystem`.
-    ///
     pub fn new(gfx_queue: Arc<Queue>, final_output_format: Format) -> FrameSystem {
-        // Creating the render pass.
-        //
-        // The render pass has two subpasses. In the first subpass, we draw all the objects of the
-        // scene. Note that it is not the `FrameSystem` that is responsible for the drawing,
-        // instead it only provides an API that allows the user to do so.
-        //
-        // The drawing of the objects will write to the `diffuse`, `normals` and `depth`
-        // attachments.
-        //
-        // Then in the second subpass, we read these three attachments as input attachments and
-        // draw to `final_color`. Each draw operation performed in this second subpass has its
-        // value added to `final_color` and not replaced, thanks to blending.
-        //
-        // > **Warning**: If the red, green or blue component of the final image goes over `1.0`
-        // > then it will be clamped. For example a pixel of `[2.0, 1.0, 1.0]` (which is red) will
-        // > be clamped to `[1.0, 1.0, 1.0]` (which is white) instead of being converted to
-        // > `[1.0, 0.5, 0.5]` as desired. In a real-life application you want to use an additional
-        // > intermediate image with a floating-point format, then perform additional passes to
-        // > convert all the colors in the correct range. These techniques are known as HDR and
-        // > tone mapping.
-        //
-        // Input attachments are a special kind of way to read images. You can only read from them
-        // from a fragment shader, and you can only read the pixel corresponding to the pixel
-        // currently being processed by the fragment shader. If you want to read from attachments
-        // but can't deal with these restrictions, then you should create multiple render passes
-        // instead.
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
                 // The image that will contain the final rendering (in this example the swapchain
@@ -103,6 +61,13 @@ impl FrameSystem {
                     load: Clear,
                     store: Store,
                     format: final_output_format,
+                    samples: 1,
+                },
+                // Will be bound to `self.position_buffer`.
+                position: {
+                    load: Clear,
+                    store: DontCare,
+                    format: Format::R16G16B16A16_SFLOAT,
                     samples: 1,
                 },
                 // Will be bound to `self.diffuse_buffer`.
@@ -125,25 +90,12 @@ impl FrameSystem {
                     store: DontCare,
                     format: Format::D16_UNORM,
                     samples: 1,
-                },
-                // Will be boung to `self.light_camera_depth`
-                light_camera_depth: {
-                    load: Clear,
-                    store: DontCare,
-                    format: Format::D16_UNORM,
-                    samples: 1,
                 }
             },
             passes: [
-                // Write to the shadow map.
-                {
-                    color: [],
-                    depth_stencil: {light_camera_depth},
-                    input: []
-                },
                 // Write to the diffuse, normals and depth attachments.
                 {
-                    color: [diffuse, normals],
+                    color: [position, diffuse, normals],
                     depth_stencil: {depth},
                     input: []
                 },
@@ -151,7 +103,7 @@ impl FrameSystem {
                 {
                     color: [final_color],
                     depth_stencil: {},
-                    input: [diffuse, normals, depth, light_camera_depth]
+                    input: [position, diffuse, normals, depth]
                 }
             ]
         )
@@ -159,6 +111,20 @@ impl FrameSystem {
 
         // For now we create three temporary images with a dimension of 1 by 1 pixel.
         // These images will be replaced the first time we call `frame()`.
+        let position_buffer = ImageView::new_default(
+            AttachmentImage::with_usage(
+                gfx_queue.device().clone(),
+                [1, 1],
+                Format::R16G16B16A16_UNORM,
+                ImageUsage {
+                    transient_attachment: true,
+                    input_attachment: true,
+                    ..ImageUsage::none()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
         let diffuse_buffer = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
@@ -201,42 +167,21 @@ impl FrameSystem {
             .unwrap(),
         )
         .unwrap();
-        let light_camera_depth_buffer = ImageView::new_default(
-            AttachmentImage::with_usage(
-                gfx_queue.device().clone(),
-                [1, 1],
-                Format::D16_UNORM,
-                ImageUsage {
-                    transient_attachment: true,
-                    input_attachment: true,
-                    ..ImageUsage::none()
-                },
-            )
-            .unwrap(),
-        )
-        .unwrap();
 
         // Initialize the three lighting systems.
         // Note that we need to pass to them the subpass where they will be executed.
-        let lighting_subpass = Subpass::from(render_pass.clone(), 2).unwrap();
-        let ambient_lighting_system =
-            AmbientLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
+        let lighting_subpass = Subpass::from(render_pass.clone(), 1).unwrap();
         let directional_lighting_system =
             DirectionalLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
-        let point_lighting_system = PointLightingSystem::new(gfx_queue.clone(), lighting_subpass.clone());
-        let point_lighting_phong_system = PointLightingPhongSystem::new(gfx_queue.clone(), lighting_subpass);
 
         FrameSystem {
             gfx_queue,
             render_pass,
+            position_buffer,
             diffuse_buffer,
             normals_buffer,
             depth_buffer,
-            light_camera_depth_buffer,
-            ambient_lighting_system,
             directional_lighting_system,
-            point_lighting_system,
-            point_lighting_phong_system,
         }
     }
 
@@ -264,6 +209,7 @@ impl FrameSystem {
         before_future: F,
         final_image: Arc<dyn ImageViewAbstract + 'static>,
         world_to_framebuffer: Matrix4<f32>,
+        shadow_image: Arc<AttachmentImage>
     ) -> Frame
     where
         F: GpuFuture + 'static,
@@ -276,6 +222,21 @@ impl FrameSystem {
             // image is only defined when within a render pass. In other words you can draw to
             // them in a subpass then read them in another subpass, but as soon as you leave the
             // render pass their content becomes undefined.
+            
+            self.position_buffer = ImageView::new_default(
+                AttachmentImage::with_usage(
+                    self.gfx_queue.device().clone(),
+                    img_dims,
+                    Format::R16G16B16A16_SFLOAT,
+                    ImageUsage {
+                        transient_attachment: true,
+                        input_attachment: true,
+                        ..ImageUsage::none()
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap();
             self.diffuse_buffer = ImageView::new_default(
                 AttachmentImage::with_usage(
                     self.gfx_queue.device().clone(),
@@ -318,20 +279,6 @@ impl FrameSystem {
                 .unwrap(),
             )
             .unwrap();
-            self.light_camera_depth_buffer = ImageView::new_default(
-                AttachmentImage::with_usage(
-                    self.gfx_queue.device().clone(),
-                    img_dims,
-                    Format::D16_UNORM,
-                    ImageUsage {
-                        transient_attachment: true,
-                        input_attachment: true,
-                        ..ImageUsage::none()
-                    },
-                )
-                .unwrap(),
-            )
-            .unwrap();
         }
 
         // Build the framebuffer. The image must be attached in the same order as they were defined
@@ -341,10 +288,10 @@ impl FrameSystem {
             FramebufferCreateInfo {
                 attachments: vec![
                     final_image.clone(),
+                    self.position_buffer.clone(),
                     self.diffuse_buffer.clone(),
                     self.normals_buffer.clone(),
-                    self.depth_buffer.clone(),
-                    self.light_camera_depth_buffer.clone()
+                    self.depth_buffer.clone()
                 ],
                 ..Default::default()
             },
@@ -365,7 +312,7 @@ impl FrameSystem {
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
-                        Some(1.0f32.into()),
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some(1.0f32.into()),
                     ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
@@ -381,6 +328,7 @@ impl FrameSystem {
             num_pass: 0,
             command_buffer_builder: Some(command_buffer_builder),
             world_to_framebuffer,
+            shadow_image,
         }
     }
 }
@@ -409,6 +357,7 @@ pub struct Frame<'a> {
     command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
     // Matrix that was passed to `frame()`.
     world_to_framebuffer: Matrix4<f32>,
+    shadow_image: Arc<AttachmentImage>,
 }
 
 impl<'a> Frame<'a> {
@@ -422,28 +371,10 @@ impl<'a> Frame<'a> {
             current_pass
         } {
             0 => {
-                // If we are in the pass 0 then we haven't start anything yet.
-                // We already called `begin_render_pass` (in the `frame()` method), and that's the
-                // state we are in.
-                // We return an object that will allow the user to draw objects on the scene.
-                Some(Pass::Shadow(DrawPass { frame: self }))
-            }
-
-            1 => {
-                // If we are in the pass 0 then we haven't start anything yet.
-                // We already called `begin_render_pass` (in the `frame()` method), and that's the
-                // state we are in.
-                // We return an object that will allow the user to draw objects on the scene.
-                self.command_buffer_builder
-                    .as_mut()
-                    .unwrap()
-                    .next_subpass(SubpassContents::SecondaryCommandBuffers)
-                    .unwrap();
-
                 Some(Pass::Deferred(DrawPass { frame: self }))
             }
 
-            2 => {
+            1 => {
                 // If we are in pass 1 then we have finished drawing the objects on the scene.
                 // Going to the next subpass.
                 self.command_buffer_builder
@@ -456,7 +387,7 @@ impl<'a> Frame<'a> {
                 Some(Pass::Lighting(LightingPass { frame: self }))
             }
 
-            3 => {
+            2 => {
                 // If we are in pass 2 then we have finished applying lighting.
                 // We take the builder, call `end_render_pass()`, and then `build()` it to obtain
                 // an actual command buffer.
@@ -487,9 +418,6 @@ impl<'a> Frame<'a> {
 
 /// Struct provided to the user that allows them to customize or handle the pass.
 pub enum Pass<'f, 's: 'f> {
-    /// Shadow map pass
-    Shadow(DrawPass<'f, 's>),
-
     /// We are in the pass where we draw objects on the scene. The `DrawPass` allows the user to
     /// draw the objects.
     Deferred(DrawPass<'f, 's>),
@@ -543,34 +471,30 @@ pub struct LightingPass<'f, 's: 'f> {
 }
 
 impl<'f, 's: 'f> LightingPass<'f, 's> {
-    /// Applies an ambient lighting to the scene.
-    ///
-    /// All the objects will be colored with an intensity of `color`.
-    pub fn ambient_light(&mut self, color: [f32; 3]) {
-        let command_buffer = self.frame.system.ambient_lighting_system.draw(
-            self.frame.framebuffer.extent(),
-            self.frame.system.diffuse_buffer.clone(),
-            color,
-        );
-        self.frame
-            .command_buffer_builder
-            .as_mut()
-            .unwrap()
-            .execute_commands(command_buffer)
-            .unwrap();
-    }
 
     /// Applies an directional lighting to the scene.
     ///
     /// All the objects will be colored with an intensity varying between `[0, 0, 0]` and `color`,
     /// depending on the dot product of their normal and `direction`.
-    pub fn directional_light(&mut self, direction: Vector3<f32>, color: [f32; 3]) {
+    pub fn directional_light(
+        &mut self, direction: Vector3<f32>, 
+        color: [f32; 3],
+        light_view: Matrix4<f32>,
+        light_projection: Matrix4<f32>,
+        world_view_model: Matrix4<f32>,
+    ) {
         let command_buffer = self.frame.system.directional_lighting_system.draw(
             self.frame.framebuffer.extent(),
+            self.frame.system.position_buffer.clone(),
             self.frame.system.diffuse_buffer.clone(),
             self.frame.system.normals_buffer.clone(),
+            self.frame.system.depth_buffer.clone(),
             direction,
+            light_view,
+            light_projection,
+            world_view_model,
             color,
+            self.frame.shadow_image.clone()
         );
         self.frame
             .command_buffer_builder
@@ -580,50 +504,10 @@ impl<'f, 's: 'f> LightingPass<'f, 's> {
             .unwrap();
     }
 
-    /// Applies a spot lighting to the scene.
-    ///
-    /// All the objects will be colored with an intensity varying between `[0, 0, 0]` and `color`,
-    /// depending on their distance with `position`. Objects that aren't facing `position` won't
-    /// receive any light.
-    pub fn point_light(&mut self, position: Vector3<f32>, color: [f32; 3]) {
-        let command_buffer = {
-            self.frame.system.point_lighting_system.draw(
-                self.frame.framebuffer.extent(),
-                self.frame.system.diffuse_buffer.clone(),
-                self.frame.system.normals_buffer.clone(),
-                self.frame.system.depth_buffer.clone(),
-                self.frame.world_to_framebuffer.invert().unwrap(),
-                position,
-                color,
-            )
-        };
 
-        self.frame
-            .command_buffer_builder
-            .as_mut()
-            .unwrap()
-            .execute_commands(command_buffer)
-            .unwrap();
-    }
-
-    pub fn point_light_phong(&mut self, position: Vector3<f32>, color: [f32; 3]) {
-        let command_buffer = {
-            self.frame.system.point_lighting_phong_system.draw(
-                self.frame.framebuffer.extent(),
-                self.frame.system.diffuse_buffer.clone(),
-                self.frame.system.normals_buffer.clone(),
-                self.frame.system.depth_buffer.clone(),
-                self.frame.world_to_framebuffer.invert().unwrap(),
-                position,
-                color,
-            )
-        };
-
-        self.frame
-            .command_buffer_builder
-            .as_mut()
-            .unwrap()
-            .execute_commands(command_buffer)
-            .unwrap();
+    /// Returns the dimensions in pixels of the viewport.
+    #[inline]
+    pub fn viewport_dimensions(&self) -> [u32; 2] {
+        self.frame.framebuffer.extent()
     }
 }

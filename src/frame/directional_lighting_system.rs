@@ -8,8 +8,13 @@
 // according to those terms.
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::Vector3;
-use std::sync::Arc;
+use cgmath::SquareMatrix;
+use cgmath::{Vector3, Matrix4};
+use vulkano::image::AttachmentImage;
+use std::io::Read;
+use std::io::BufReader;
+use std::fs::File;
+use std::{sync::Arc, io::Cursor};
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
@@ -18,7 +23,7 @@ use vulkano::{
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::Queue,
-    image::ImageViewAbstract,
+    image::{ImageViewAbstract, StorageImage, view::{ImageView, ImageViewCreateInfo, ImageViewType}, ImageDimensions, ImmutableImage, MipmapsCount},
     impl_vertex,
     pipeline::{
         graphics::{
@@ -29,7 +34,7 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass,
+    render_pass::Subpass, sampler::{Sampler, SamplerCreateInfo, Filter, SamplerAddressMode}, format::Format,
 };
 
 /// Allows applying a directional light source to a scene.
@@ -124,25 +129,41 @@ impl DirectionalLightingSystem {
     pub fn draw(
         &self,
         viewport_dimensions: [u32; 2],
+        position_input: Arc<dyn ImageViewAbstract + 'static>,
         color_input: Arc<dyn ImageViewAbstract + 'static>,
         normals_input: Arc<dyn ImageViewAbstract + 'static>,
+        depth_input: Arc<dyn ImageViewAbstract + 'static>,
         direction: Vector3<f32>,
+        light_view: Matrix4<f32>,
+        light_projection: Matrix4<f32>,
+        world_view_model: Matrix4<f32>,
         color: [f32; 3],
+        shadow_image: Arc<AttachmentImage>,
     ) -> SecondaryAutoCommandBuffer {
-        let push_constants = fs::ty::PushConstants {
+        let push_constants_fs = fs::ty::PushConstants {
             color: [color[0], color[1], color[2], 1.0],
             direction: direction.extend(0.0).into(),
+            light_view_model: (light_view * light_projection).into(),
+            world_view_model: world_view_model.into()
         };
 
+
+        let shadow_set = DirectionalLightingSystem::create_shadow_set(self.gfx_queue.clone(), shadow_image.clone());
+        
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
             [
-                WriteDescriptorSet::image_view(0, color_input),
-                WriteDescriptorSet::image_view(1, normals_input),
+                shadow_set,
+                WriteDescriptorSet::image_view(1, position_input),
+                WriteDescriptorSet::image_view(2, color_input),
+                WriteDescriptorSet::image_view(3, normals_input),
+                WriteDescriptorSet::image_view(4, depth_input),
+                
             ],
         )
         .unwrap();
+
 
         let viewport = Viewport {
             origin: [0.0, 0.0],
@@ -169,11 +190,31 @@ impl DirectionalLightingSystem {
                 0,
                 descriptor_set,
             )
-            .push_constants(self.pipeline.layout().clone(), 0, push_constants)
+            
+            .push_constants(self.pipeline.layout().clone(), 0, push_constants_fs)
             .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
         builder.build().unwrap()
+    }
+
+    fn create_shadow_set(gfx_queue: Arc<Queue>, shadow_image: Arc<AttachmentImage>,) -> WriteDescriptorSet {
+
+        let view = ImageView::new_default(shadow_image).unwrap();
+
+    
+        let sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                address_mode: [SamplerAddressMode::Repeat; 3],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        WriteDescriptorSet::image_view_sampler(0, view, sampler)
     }
 }
 
@@ -192,8 +233,11 @@ mod vs {
 
 layout(location = 0) in vec2 position;
 
+layout(location = 0) out vec2 v_frag_pos;
+
 void main() {
     gl_Position = vec4(position, 0.0, 1.0);
+    v_frag_pos = position;
 }"
     }
 }
@@ -204,34 +248,48 @@ mod fs {
         src: "
 #version 450
 
+
+
+layout(set = 0, binding = 0) uniform sampler2D shadow_map;
+
+// The `position_input` parameter of the `draw` method.
+layout(input_attachment_index = 1, set = 0, binding = 1) uniform subpassInput u_position;
 // The `color_input` parameter of the `draw` method.
-layout(input_attachment_index = 0, set = 0, binding = 0) uniform subpassInput u_diffuse;
+layout(input_attachment_index = 2, set = 0, binding = 2) uniform subpassInput u_diffuse;
 // The `normals_input` parameter of the `draw` method.
-layout(input_attachment_index = 1, set = 0, binding = 1) uniform subpassInput u_normals;
+layout(input_attachment_index = 3, set = 0, binding = 3) uniform subpassInput u_normals;
+// The `depth_input` parameter of the `draw` method.
+layout(input_attachment_index = 4, set = 0, binding = 4) uniform subpassInput u_depth;
 
 layout(push_constant) uniform PushConstants {
-    // The `color` parameter of the `draw` method.
     vec4 color;
-    // The `direction` parameter of the `draw` method.
     vec4 direction;
+    mat4 light_view_model;
+    mat4 world_view_model;
 } push_constants;
 
+
+
+layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
 
+
 void main() {
+    vec3 in_position = subpassLoad(u_position).rgb;
+    vec3 in_diffuse = subpassLoad(u_diffuse).rgb;
     vec3 in_normal = normalize(subpassLoad(u_normals).rgb);
-    // If the normal is perpendicular to the direction of the lighting, then `light_percent` will
-    // be 0. If the normal is parallel to the direction of the lightin, then `light_percent` will
-    // be 1. Any other angle will yield an intermediate value.
+    vec3 in_depth = normalize(subpassLoad(u_depth).rgb);
+    vec4 in_shadow_map = texture(shadow_map, v_frag_pos * 0.5 + 0.5);
+
+
     float light_percent = -dot(push_constants.direction.xyz, in_normal);
-    // `light_percent` must not go below 0.0. There's no such thing as negative lighting.
     light_percent = max(light_percent, 0.0);
 
-    vec3 in_diffuse = subpassLoad(u_diffuse).rgb;
+    
     f_color.rgb = light_percent * push_constants.color.rgb * in_diffuse;
-    // test too see if color shows, please remove
-    //f_color= vec4(1.0f, 0.0f, 0.0f, 1.0f);
     f_color.a = 1.0;
+
+    
 }",
         types_meta: {
             use bytemuck::{Pod, Zeroable};

@@ -32,12 +32,11 @@ impl SceneShadowPass {
     }
 
     pub fn draw(&mut self, shadow_map_renderer: &mut ShadowMapRenderer) {
-
+        let world = self.scene.clone().world_model;
         let (view, projection) = self.scene.directional_lights[0].clone().view_projection();
-        let world = self.scene.world_model;
 
         for i in 0..self.object_3d_passes.len() {
-            let cb = self.object_3d_passes[i].draw(shadow_map_renderer, world, view, projection);
+            let cb = self.object_3d_passes[i].draw(shadow_map_renderer, world,  projection, view);
             shadow_map_renderer.execute_draw_pass(cb);
         }
 

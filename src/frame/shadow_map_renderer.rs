@@ -56,7 +56,7 @@ impl ShadowMapRenderer {
         .unwrap(),
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
-            final_image: shadow_image.clone()
+            final_image: shadow_image
         }
     }
 

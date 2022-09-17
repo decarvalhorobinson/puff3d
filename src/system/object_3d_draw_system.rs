@@ -46,7 +46,6 @@ pub struct Buffers {
     pub tangent_buffer: Arc<CpuAccessibleBuffer<[Tangent]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
     pub uniform_buffer_deferred: CpuBufferPool<vs_deffered::ty::Data>,
-    pub uniform_buffer_depth: CpuBufferPool<vs_depth::ty::Data>
 }
 
 
@@ -56,9 +55,7 @@ pub struct Object3DDrawSystem {
     object_3d: Object3D,
     draw_system: Arc<DrawSystem>,
     pipeline_deferred: Arc<GraphicsPipeline>,
-    pipeline_depth: Arc<GraphicsPipeline>,
-    subpass_deferred: Subpass,
-    subpass_depth: Subpass, 
+    subpass: Subpass, 
     diffuse_set: Arc<PersistentDescriptorSet>,
     normal_set: Arc<PersistentDescriptorSet>,
     buffers: Buffers
@@ -71,15 +68,11 @@ impl Object3DDrawSystem {
         object_3d: Object3D
     ) -> Object3DDrawSystem {
 
-        let subpass_depth = Subpass::from(draw_system.render_pass.clone(), 0).unwrap();
-
-        let subpass_deferred = Subpass::from(draw_system.render_pass.clone(), 1).unwrap();
+        let subpass = Subpass::from(draw_system.render_pass.clone(), 0).unwrap();
 
         let buffers = Object3DDrawSystem::create_buffers(draw_system.gfx_queue.clone(), object_3d.clone());
 
-        let pipeline_depth = Object3DDrawSystem::create_depth_pipeline(draw_system.gfx_queue.clone(), subpass_depth.clone());
-
-        let pipeline_deferred = Object3DDrawSystem::create_deferred_pipeline(draw_system.gfx_queue.clone(), subpass_deferred.clone());
+        let pipeline_deferred = Object3DDrawSystem::create_deferred_pipeline(draw_system.gfx_queue.clone(), subpass.clone());
 
         let diffuse_set = Object3DDrawSystem::create_diffuse_set(draw_system.gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
     
@@ -90,9 +83,7 @@ impl Object3DDrawSystem {
             draw_system,
             buffers,
             pipeline_deferred,
-            pipeline_depth,
-            subpass_depth,
-            subpass_deferred,
+            subpass,
             diffuse_set,
             normal_set
         }
@@ -128,7 +119,7 @@ impl Object3DDrawSystem {
             self.draw_system.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass_deferred.clone().into()),
+                render_pass: Some(self.subpass.clone().into()),
                 ..Default::default()
             },
         )
@@ -168,64 +159,6 @@ impl Object3DDrawSystem {
         builder.build().unwrap()
     }
 
-    pub fn draw_depth(&mut self, viewport_dimensions: [u32; 2], world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
-
-        //descriptor set
-        let uniform_buffer_subbuffer = {
-            let scale = Matrix4::from_scale(0.05);
-
-            let uniform_data = vs_depth::ty::Data {
-                model: self.object_3d.model_matrix.into(),
-                world: world.into(),
-                view: (view * scale).into(),
-                proj: projection.into(),
-            };
-
-            self.buffers.uniform_buffer_depth.next(uniform_data).unwrap()
-        };
-
-        let layout = self.pipeline_depth.layout().set_layouts().get(0).unwrap();
-        let set = PersistentDescriptorSet::new(
-            layout.clone(),
-            [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
-        )
-        .unwrap();
-
-        //end descriptor set
-
-        let mut builder = AutoCommandBufferBuilder::secondary(
-            self.draw_system.gfx_queue.device().clone(),
-            self.draw_system.gfx_queue.family(),
-            CommandBufferUsage::MultipleSubmit,
-            CommandBufferInheritanceInfo {
-                render_pass: Some(self.subpass_depth.clone().into()),
-                ..Default::default()
-            },
-        )
-        .unwrap();
-        builder
-            .set_viewport(
-                0,
-                [Viewport {
-                    origin: [0.0, 0.0],
-                    dimensions: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
-                    depth_range: 0.0..1.0,
-                }],
-            )
-            .bind_pipeline_graphics(self.pipeline_depth.clone())
-            .bind_descriptor_sets(
-                PipelineBindPoint::Graphics,
-                self.pipeline_depth.layout().clone(),
-                0,
-                set
-            )
-            .bind_vertex_buffers(0, (self.buffers.vertex_buffer.clone()))
-            .bind_index_buffer(self.buffers.index_buffer.clone())
-            .draw_indexed(self.buffers.index_buffer.len() as u32, 1, 0, 0, 0)
-            .unwrap();
-        builder.build().unwrap()
-    }
-
     // private methods
 
     fn create_deferred_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
@@ -239,25 +172,6 @@ impl Object3DDrawSystem {
                     .vertex::<Normal>()
                     .vertex::<Uv>()
                     .vertex::<Tangent>(),
-            )
-            .vertex_shader(vs.entry_point("main").unwrap(), ())
-            .input_assembly_state(InputAssemblyState::new())
-            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
-            .depth_stencil_state(DepthStencilState::simple_depth_test())
-            .render_pass(subpass.clone())
-            .build(gfx_queue.device().clone())
-            .unwrap()
-    }
-
-    fn create_depth_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
-        let vs = vs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
-        let fs = fs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
-
-        GraphicsPipeline::start()
-            .vertex_input_state(
-                BuffersDefinition::new()
-                    .vertex::<Vertex>(),
             )
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
@@ -447,15 +361,7 @@ impl Object3DDrawSystem {
             },
         );
 
-        let uniform_buffer_depth = CpuBufferPool::<vs_depth::ty::Data>::new(
-            gfx_queue.device().clone(),
-            BufferUsage {
-                uniform_buffer: true,
-                ..BufferUsage::none()
-            },
-        );
-
-        Buffers{vertex_buffer, normals_buffer, uv_buffer, tangent_buffer, index_buffer, uniform_buffer_deferred, uniform_buffer_depth}
+        Buffers{vertex_buffer, normals_buffer, uv_buffer, tangent_buffer, index_buffer, uniform_buffer_deferred}
 
     }
 }
@@ -471,9 +377,10 @@ layout(location = 1) in vec3 normal;
 layout(location = 2) in vec2 uv;
 layout(location = 3) in vec3 tangent;
 
-layout(location = 0) out vec3 v_normal;
-layout(location = 1) out vec2 v_uv;
-layout(location = 2) out mat3 v_tbn;
+layout(location = 0) out vec4 v_position;
+layout(location = 1) out vec3 v_normal;
+layout(location = 2) out vec2 v_uv;
+layout(location = 3) out mat3 v_tbn;
 
 layout(set = 0, binding = 0) uniform Data {
     mat4 model;
@@ -488,6 +395,8 @@ void main() {
     //v_normal = normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
     v_uv = uv;
+
+    v_position = worldview * vec4(position, 1.0);
 
     vec3 t = normalize(vec3(worldview * vec4(tangent,   0.0)));
     vec3 n = normalize(vec3(worldview * vec4(normal,    0.0)));
@@ -511,64 +420,28 @@ mod fs_deferred {
         src: "
 #version 450
 
-layout(location = 0) in vec3 v_normal;
-layout(location = 1) in vec2 v_uv;
-layout(location = 2) in mat3 v_tbn;
-layout(location = 0) out vec4 f_color;
-layout(location = 1) out vec3 f_normal;
+layout(location = 0) in vec4 v_position;
+layout(location = 1) in vec3 v_normal;
+layout(location = 2) in vec2 v_uv;
+layout(location = 3) in mat3 v_tbn;
+
+layout(location = 0) out vec4 f_position;
+layout(location = 1) out vec4 f_color;
+layout(location = 2) out vec3 f_normal;
 
 layout(set = 1, binding = 0) uniform sampler2D tex;
 layout(set = 2, binding = 0) uniform sampler2D normal_map;
 
 void main() {
+
+    f_position = v_position;
+
     f_color = texture(tex, v_uv);
     //f_color = vec4(0.5, 0.5, 0.5, 1.0);
 
     f_normal = texture(normal_map, v_uv).rgb;
     f_normal = -(f_normal * 2.0 - 1.0);
     f_normal = normalize(v_tbn * f_normal);
-}"
-    }
-}
-
-mod vs_depth {
-    vulkano_shaders::shader! {
-        ty: "vertex",
-        src: "
-#version 450
-
-layout(location = 0) in vec3 position;
-
-layout(set = 0, binding = 0) uniform Data {
-    mat4 model;
-    mat4 world;
-    mat4 view;
-    mat4 proj;
-} uniforms;
-
-void main() {
-    mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
-    gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
-
-}",
-types_meta: {
-    use bytemuck::{Pod, Zeroable};
-
-    #[derive(Clone, Copy, Zeroable, Pod)]
-}
-    }
-}
-
-mod fs_depth {
-    vulkano_shaders::shader! {
-        ty: "fragment",
-        src: "
-#version 450
-
-
-
-
-void main() {
 }"
     }
 }
