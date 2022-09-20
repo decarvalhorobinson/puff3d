@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use cgmath::{Matrix4, SquareMatrix};
+use cgmath::{Matrix4, SquareMatrix, Point3, Vector3, Rad};
 use vulkano::device::{Device, DeviceExtensions, DeviceCreateInfo, QueueCreateInfo};
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::image::{ImageUsage};
@@ -233,6 +233,9 @@ pub fn vulkan_init() {
             {
                 let mut scene_locked = scene.lock().unwrap();
                 scene_locked.rotate(rotation);
+                let light_rot = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(rotation as f32)) * Point3::new(-40.0, 50.0, -40.0).to_homogeneous();
+                scene_locked.directional_lights[0].position = Point3::new(light_rot.x, light_rot.y, light_rot.z);
+
             }
 
             let future = previous_frame_end.take().unwrap().join(acquire_future);
