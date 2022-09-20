@@ -1,6 +1,6 @@
 use cgmath::{Matrix4, Rad, Vector3};
 
-use super::{camera::Camera, object3d::Object3D, directional_ligh::DirectionalLight};
+use super::{camera::Camera, object3d::Object3D, directional_light::DirectionalLight};
 
 #[repr(C)]
 #[derive(Clone, Debug)]
@@ -17,10 +17,10 @@ impl Scene {
     pub fn projection(viewport_dimensions: [u32; 2]) -> Matrix4<f32> {
         let aspect_ratio = viewport_dimensions[0] as f32 / viewport_dimensions[1] as f32;
         cgmath::perspective(
-            Rad(std::f32::consts::FRAC_PI_4),
+            Rad(std::f32::consts::FRAC_PI_2),
             aspect_ratio,
-            0.01,
-            100.0,
+            0.1,
+            70.0,
         )
     }
 

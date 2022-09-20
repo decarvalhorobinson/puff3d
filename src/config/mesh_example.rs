@@ -7,16 +7,18 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
+use std::sync::Mutex;
+
 use cgmath::{Vector3, Matrix4, SquareMatrix, Point3};
 
-use crate::{scene_pkg::{mesh::{Vertex, Mesh, Normal}, scene::Scene, camera::Camera, directional_ligh::DirectionalLight, object3d::Object3D}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
+use crate::{scene_pkg::{mesh::{Vertex, Mesh, Normal}, scene::Scene, camera::Camera, directional_light::DirectionalLight, object3d::Object3D}, object_3d_loader::mesh_converters::ObjFileToMeshConverter};
 
 pub fn get_example_mesh_cottage_house() -> Mesh {
     let obj_to_mesh_converter = ObjFileToMeshConverter::new(String::from("./src/cottage_house/cottage.obj"));
     obj_to_mesh_converter.create_mesh()
 }
 
-pub fn get_example_scene_cottage_house() -> std::sync::Arc<Scene> {
+pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     
     let mut scene = Scene {
         cameras: vec![],
@@ -25,7 +27,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Scene> {
         world_model: Matrix4::identity(),
         directional_lights: vec![
             DirectionalLight {
-                position: Point3::new(-5.0, 5.0, -5.0),
+                position: Point3::new(-40.0, 50.0, -40.0),
                 center: Point3::new(0.0, 0.0, 0.0), 
                 color: [1.0, 1.0, 1.0],
             }
@@ -47,7 +49,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Scene> {
     obj.update_model_matrix();
     scene.objects.push(obj);
 
-    std::sync::Arc::new(scene)
+    std::sync::Arc::new(Mutex::new(scene))
 }
 
 pub fn get_example_scene_brick_wall() -> Scene {

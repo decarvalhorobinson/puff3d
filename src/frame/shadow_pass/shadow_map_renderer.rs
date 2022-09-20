@@ -1,17 +1,20 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use vulkano::{sync::{self, GpuFuture}, image::{AttachmentImage, ImageUsage}, format::Format};
 
-use cgmath::Matrix4;
+use cgmath::{Matrix4, SquareMatrix};
 use image::{ImageBuffer, Rgba};
 use vulkano::{device::Queue, render_pass::{Subpass, RenderPass, Framebuffer, FramebufferCreateInfo}, command_buffer::{PrimaryAutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents, SecondaryCommandBuffer, CopyImageToBufferInfo}, image::{ImageViewAbstract, StorageImage, view::ImageView}, buffer::{CpuAccessibleBuffer, BufferUsage}};
 
 use crate::scene_pkg::scene::Scene;
 
+use super::object_3d_shadow_pass::Object3DShadowPass;
+
 pub struct ShadowMapRenderer {
 
-    pub scene: Arc<Scene>,
+    pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
+    pub object_3d_passes: Vec<Object3DShadowPass>,
 
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
@@ -22,7 +25,22 @@ pub struct ShadowMapRenderer {
 
 impl ShadowMapRenderer {
 
-    pub fn new(queue: Arc<Queue>, scene: Arc<Scene>) -> ShadowMapRenderer {
+    pub fn new(queue: Arc<Queue>, scene: Arc<Mutex<Scene>>) -> ShadowMapRenderer {
+        let render_pass = vulkano::single_pass_renderpass!(queue.device().clone(),
+                attachments: {
+                    depth: {
+                        load: Clear,
+                        store: Store,
+                        format: Format::D16_UNORM,
+                        samples: 1,
+                    }
+                },
+                pass: {
+                    color: [],
+                    depth_stencil: {depth}
+                }
+            ).unwrap();
+
         let shadow_image = AttachmentImage::with_usage(
             queue.device().clone(),
             [2048, 2048],
@@ -36,28 +54,45 @@ impl ShadowMapRenderer {
         )
         .unwrap();
 
+        let scene_locked = scene.lock().unwrap();
+        let mut object_3d_passes: Vec<Object3DShadowPass> = vec![];
+        object_3d_passes.reserve(scene_locked.objects.len());
+        for object_3d in scene_locked.objects.clone()  {
+            object_3d_passes.push(Object3DShadowPass::new(
+                queue.clone(),
+                render_pass.clone(),
+                object_3d
+            ));
+        }
+
         ShadowMapRenderer { 
             scene: scene.clone(),
             gfx_queue: queue.clone(),
-            render_pass: vulkano::single_pass_renderpass!(queue.device().clone(),
-            attachments: {
-                depth: {
-                    load: Clear,
-                    store: Store,
-                    format: Format::D16_UNORM,
-                    samples: 1,
-                }
-            },
-            pass: {
-                color: [],
-                depth_stencil: {depth}
-            }
-        )
-        .unwrap(),
+            render_pass: render_pass,
+            object_3d_passes: object_3d_passes,
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
             final_image: shadow_image
         }
+    }
+
+    pub fn draw(&mut self) {
+        let view;
+        let projection;
+        let world;
+        {
+            let scene_locked = self.scene.lock().unwrap();
+            world = scene_locked.world_model;
+            (view, projection) = scene_locked.directional_lights[0].clone().view_projection();
+        }
+
+        for i in 0..self.object_3d_passes.len() {
+
+            let cb = self.object_3d_passes[i].draw(self.framebuffer.clone().unwrap().extent(), world,  projection, view);
+            self.execute_draw_pass(cb);
+        }
+
+
     }
 
 

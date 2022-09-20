@@ -8,6 +8,16 @@
 // according to those terms.
 
 use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use vulkano::format::Format;
+use vulkano::image::ImageDimensions;
+use vulkano::image::ImmutableImage;
+use vulkano::image::MipmapsCount;
+use vulkano::image::view::ImageView;
+use vulkano::render_pass::RenderPass;
+use vulkano::sampler::Filter;
+use vulkano::sampler::Sampler;
+use vulkano::sampler::SamplerAddressMode;
+use vulkano::sampler::SamplerCreateInfo;
 use std::io::Read;
 use std::io::BufReader;
 use std::fs::File;
@@ -29,13 +39,14 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter},
+    render_pass::Subpass,
 };
 
 use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
 use crate::scene_pkg::object3d::Object3D;
+use crate::system::object_3d_draw_system::Object3DDrawSystem;
 
-use super::draw_system::DrawSystem;
+use super::deferred_map_renderer::DeferredMapRenderer;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -45,66 +56,65 @@ pub struct Buffers {
     pub uv_buffer: Arc<CpuAccessibleBuffer<[Uv]>>,
     pub tangent_buffer: Arc<CpuAccessibleBuffer<[Tangent]>>,
     pub index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
-    pub uniform_buffer_deferred: CpuBufferPool<vs_deffered::ty::Data>,
+    pub uniform_buffer: CpuBufferPool<vs::ty::Data>,
 }
 
-
-#[repr(C)]
-#[derive(Clone)]
-pub struct Object3DDrawSystem {
+pub struct Object3DDeferredPass{
+    gfx_queue: Arc<Queue>,
     object_3d: Object3D,
-    draw_system: Arc<DrawSystem>,
-    pipeline_deferred: Arc<GraphicsPipeline>,
+    pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass, 
-    diffuse_set: Arc<PersistentDescriptorSet>,
+    buffers: Buffers,
+    albedo_set: Arc<PersistentDescriptorSet>,
     normal_set: Arc<PersistentDescriptorSet>,
-    buffers: Buffers
 }
 
-impl Object3DDrawSystem {
+impl Object3DDeferredPass{
     /// Initializes a triangle drawing system.
     pub fn new(
-        draw_system: Arc<DrawSystem>, 
+        gfx_queue: Arc<Queue>,
+        render_pass: Arc<RenderPass>,
         object_3d: Object3D
-    ) -> Object3DDrawSystem {
+    ) -> Object3DDeferredPass {
 
-        let subpass = Subpass::from(draw_system.render_pass.clone(), 0).unwrap();
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
-        let buffers = Object3DDrawSystem::create_buffers(draw_system.gfx_queue.clone(), object_3d.clone());
+        let buffers = Object3DDeferredPass::create_buffers(gfx_queue.clone(), object_3d.clone());
 
-        let pipeline_deferred = Object3DDrawSystem::create_deferred_pipeline(draw_system.gfx_queue.clone(), subpass.clone());
+        let pipeline = Object3DDeferredPass::create_pipeline(gfx_queue.clone(), subpass.clone());
 
-        let diffuse_set = Object3DDrawSystem::create_diffuse_set(draw_system.gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
+        let albedo_set = Object3DDeferredPass::create_albedo_set(gfx_queue.clone(), pipeline.clone(), object_3d.clone());
     
-        let normal_set = Object3DDrawSystem::create_normal_set(draw_system.gfx_queue.clone(), pipeline_deferred.clone(), object_3d.clone());
+        let normal_set = Object3DDeferredPass::create_normal_set(gfx_queue.clone(), pipeline.clone(), object_3d.clone());
 
-        Object3DDrawSystem {
+        Object3DDeferredPass {
+            gfx_queue,
             object_3d,
-            draw_system,
-            buffers,
-            pipeline_deferred,
+            pipeline,
             subpass,
-            diffuse_set,
+            buffers,
+            albedo_set,
             normal_set
         }
     }
 
-    pub fn draw_deferred(&mut self, viewport_dimensions: [u32; 2], world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
+
+    pub fn draw(&mut self, viewport_dimensions: [u32; 2], world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
 
         //descriptor set
         let uniform_buffer_subbuffer = {
 
-            let uniform_data = vs_deffered::ty::Data {
+            let uniform_data = vs::ty::Data {
                 model: self.object_3d.model_matrix.into(),
                 world: world.into(),
                 view: (view).into(),
                 proj: projection.into(),
             };
 
-            self.buffers.uniform_buffer_deferred.next(uniform_data).unwrap()
+            self.buffers.uniform_buffer.next(uniform_data).unwrap()
         };
 
-        let layout = self.pipeline_deferred.layout().set_layouts().get(0).unwrap();
+        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let set = PersistentDescriptorSet::new(
             layout.clone(),
             [WriteDescriptorSet::buffer(0, uniform_buffer_subbuffer)],
@@ -114,8 +124,8 @@ impl Object3DDrawSystem {
         //end descriptor set
 
         let mut builder = AutoCommandBufferBuilder::secondary(
-            self.draw_system.gfx_queue.device().clone(),
-            self.draw_system.gfx_queue.family(),
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
@@ -132,22 +142,22 @@ impl Object3DDrawSystem {
                     depth_range: 0.0..1.0,
                 }],
             )
-            .bind_pipeline_graphics(self.pipeline_deferred.clone())
+            .bind_pipeline_graphics(self.pipeline.clone())
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.pipeline_deferred.layout().clone(),
+                self.pipeline.layout().clone(),
                 0,
                 set,
             )
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.pipeline_deferred.layout().clone(),
+                self.pipeline.layout().clone(),
                 1,
-                self.diffuse_set.clone(),
+                self.albedo_set.clone(),
             )
             .bind_descriptor_sets(
                 PipelineBindPoint::Graphics,
-                self.pipeline_deferred.layout().clone(),
+                self.pipeline.layout().clone(),
                 2,
                 self.normal_set.clone(),
             )
@@ -160,9 +170,9 @@ impl Object3DDrawSystem {
 
     // private methods
 
-    fn create_deferred_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
-        let vs = vs_deffered::load(gfx_queue.device().clone()).expect("failed to create shader module");
-        let fs = fs_deferred::load(gfx_queue.device().clone()).expect("failed to create shader module");
+    fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
+        let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
 
         GraphicsPipeline::start()
             .vertex_input_state(
@@ -205,7 +215,7 @@ impl Object3DDrawSystem {
             let (image, future) = ImmutableImage::from_iter(
                 image_data,
                 dimensions,
-                MipmapsCount::Log2,
+                MipmapsCount::One,
                 Format::R8G8B8A8_UNORM,
                 gfx_queue.clone(),
             )
@@ -234,7 +244,7 @@ impl Object3DDrawSystem {
         normal_set
     }
 
-    fn create_diffuse_set(gfx_queue: Arc<Queue>, pipeline: Arc<GraphicsPipeline>, object_3d: Object3D) -> Arc<PersistentDescriptorSet> {
+    fn create_albedo_set(gfx_queue: Arc<Queue>, pipeline: Arc<GraphicsPipeline>, object_3d: Object3D) -> Arc<PersistentDescriptorSet> {
         let (texture, tex_future) = {
             let f = File::open(object_3d.material.diffuse_file_path.clone()).unwrap();
             let mut reader = BufReader::new(f);
@@ -286,7 +296,7 @@ impl Object3DDrawSystem {
         diffuse_set
     }
 
-    fn create_buffers(gfx_queue: Arc<Queue>,  object_3d: Object3D) -> Buffers {
+    pub fn create_buffers(gfx_queue: Arc<Queue>,  object_3d: Object3D) -> Buffers {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -352,7 +362,7 @@ impl Object3DDrawSystem {
             .expect("failed to create buffer")
         };
 
-        let uniform_buffer_deferred = CpuBufferPool::<vs_deffered::ty::Data>::new(
+        let uniform_buffer = CpuBufferPool::<vs::ty::Data>::new(
             gfx_queue.device().clone(),
             BufferUsage {
                 uniform_buffer: true,
@@ -360,12 +370,12 @@ impl Object3DDrawSystem {
             },
         );
 
-        Buffers{vertex_buffer, normals_buffer, uv_buffer, tangent_buffer, index_buffer, uniform_buffer_deferred}
+        Buffers{vertex_buffer, normals_buffer, uv_buffer, tangent_buffer, index_buffer, uniform_buffer}
 
     }
 }
 
-mod vs_deffered {
+mod vs {
     vulkano_shaders::shader! {
         ty: "vertex",
         src: "
@@ -391,11 +401,10 @@ layout(set = 0, binding = 0) uniform Data {
 void main() {
     mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
     v_normal = mat3(worldview) * normal;
-    //v_normal = normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
     v_uv = uv;
 
-    v_position = worldview * vec4(position, 1.0);
+    v_position = vec4(position, 1.0);
 
     vec3 t = normalize(vec3(worldview * vec4(tangent,   0.0)));
     vec3 n = normalize(vec3(worldview * vec4(normal,    0.0)));
@@ -404,6 +413,7 @@ void main() {
     vec3 b = cross(n, t);
 
     v_tbn = mat3(t, b, n);
+
 }",
 types_meta: {
     use bytemuck::{Pod, Zeroable};
@@ -413,7 +423,7 @@ types_meta: {
     }
 }
 
-mod fs_deferred {
+mod fs {
     vulkano_shaders::shader! {
         ty: "fragment",
         src: "

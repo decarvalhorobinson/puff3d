@@ -8,6 +8,7 @@
 // according to those terms.
 
 use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use vulkano::render_pass::RenderPass;
 use std::io::Read;
 use std::io::BufReader;
 use std::fs::File;
@@ -29,7 +30,7 @@ use vulkano::{
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass, image::{ImageDimensions, ImmutableImage, MipmapsCount, view::ImageView}, format::Format, sampler::{Sampler, SamplerCreateInfo, SamplerAddressMode, Filter},
+    render_pass::Subpass,
 };
 
 use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
@@ -38,6 +39,7 @@ use crate::scene_pkg::object3d::Object3D;
 use super::shadow_map_renderer::ShadowMapRenderer;
 
 pub struct Object3DShadowPass{
+    gfx_queue: Arc<Queue>,
     object_3d: Object3D,
     pipeline_depth: Arc<GraphicsPipeline>,
     subpass: Subpass, 
@@ -49,18 +51,20 @@ pub struct Object3DShadowPass{
 impl Object3DShadowPass{
     /// Initializes a triangle drawing system.
     pub fn new(
-        shadow_map_renderer: &ShadowMapRenderer, 
+        gfx_queue: Arc<Queue>,
+        render_pass: Arc<RenderPass>,
         object_3d: Object3D
     ) -> Object3DShadowPass {
 
-        let subpass = Subpass::from(shadow_map_renderer.render_pass.clone(), 0).unwrap();
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
         let (vertex_buffer, index_buffer, uniform_data_buffer) = 
-            Object3DShadowPass::create_buffers(shadow_map_renderer.gfx_queue.clone(), object_3d.clone());
+            Object3DShadowPass::create_buffers(gfx_queue.clone(), object_3d.clone());
 
-        let pipeline_depth = Object3DShadowPass::create_depth_pipeline(shadow_map_renderer.gfx_queue.clone(), subpass.clone());
+        let pipeline_depth = Object3DShadowPass::create_depth_pipeline(gfx_queue.clone(), subpass.clone());
 
         Object3DShadowPass {
+            gfx_queue,
             object_3d,
             pipeline_depth,
             subpass,
@@ -71,12 +75,11 @@ impl Object3DShadowPass{
     }
 
 
-    pub fn draw(&mut self, shadow_map_renderer: &ShadowMapRenderer,  world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
+    pub fn draw(&mut self, viewport_dimensions: [u32; 2],  world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
 
-        let viewport_dimensions = shadow_map_renderer.viewport_dimensions();
         //descriptor set
         let uniform_buffer_subbuffer = {
-            let scale = Matrix4::from_scale(0.05);
+            let scale = Matrix4::from_scale(1.0);
 
             let uniform_data = vs_depth::ty::Data {
                 model: self.object_3d.model_matrix.into(),
@@ -98,8 +101,8 @@ impl Object3DShadowPass{
         //end descriptor set
 
         let mut builder = AutoCommandBufferBuilder::secondary(
-            shadow_map_renderer.gfx_queue.device().clone(),
-            shadow_map_renderer.gfx_queue.family(),
+            self.gfx_queue.device().clone(),
+            self.gfx_queue.family(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),

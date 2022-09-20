@@ -1,6 +1,6 @@
 
 pub mod camera;
-pub mod directional_ligh;
+pub mod directional_light;
 pub mod material;
 pub mod mesh;
 pub mod object3d;

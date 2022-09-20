@@ -1,4 +1,4 @@
-use std::{sync::Arc, rc::Rc};
+use std::{sync::{Arc, Mutex}, rc::Rc};
 
 use cgmath::{Matrix4, Rad, Vector3, Point3, SquareMatrix};
 use vulkano::render_pass::Subpass;
@@ -8,16 +8,18 @@ use super::{draw_system::DrawSystem, object_3d_draw_system::Object3DDrawSystem};
 
 pub struct SceneDrawSystem {
     obj_draw_systems: Vec<Object3DDrawSystem>,
-    scene: Arc<Scene>
+    scene: Arc<Mutex<Scene>>,
+    rotation: f32
 }
 
 impl SceneDrawSystem {
     // public methods
-    pub fn new(scene: Arc<Scene>, draw_system: Arc<DrawSystem>) -> SceneDrawSystem {
+    pub fn new(scene: Arc<Mutex<Scene>>, draw_system: Arc<DrawSystem>) -> SceneDrawSystem {
 
+        let scene_locked = scene.lock().unwrap();
         let mut obj_draw_systems: Vec<Object3DDrawSystem> = vec![];
-        obj_draw_systems.reserve(scene.objects.len());
-        for object_3d in scene.objects.clone()  {
+        obj_draw_systems.reserve(scene_locked.objects.len());
+        for object_3d in scene_locked.objects.clone()  {
             obj_draw_systems.push(Object3DDrawSystem::new(
                 draw_system.clone(),
                 object_3d
@@ -27,12 +29,13 @@ impl SceneDrawSystem {
 
         SceneDrawSystem {
             scene: scene.clone(),
-            obj_draw_systems: obj_draw_systems
+            obj_draw_systems: obj_draw_systems,
+            rotation: 0.0
         }
     }
 
     pub fn draw_deferred(&mut self, mut draw_pass: DrawPass) {        
-        let (world, view, projection) = self.get_camera_matrices(draw_pass.viewport_dimensions());
+        let (mut world, view, projection) = self.get_camera_matrices(draw_pass.viewport_dimensions());
 
         for i in 0..self.obj_draw_systems.len() {
             let mut obj_draw_systems = self.obj_draw_systems[i].clone();
@@ -44,7 +47,8 @@ impl SceneDrawSystem {
     }
 
     pub fn get_camera_matrices(&mut self, viewport_dimensions: [u32; 2]) -> (Matrix4<f32>, Matrix4<f32>, Matrix4<f32>) {
-        (self.scene.world_model, self.scene.active_camera.get_view_matrix(), Scene::projection(viewport_dimensions))
+        let scene_locked = self.scene.lock().unwrap();
+        (scene_locked.world_model, scene_locked.active_camera.get_view_matrix(), Scene::projection(viewport_dimensions))
 
     }
 

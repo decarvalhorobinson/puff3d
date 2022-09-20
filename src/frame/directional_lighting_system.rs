@@ -37,6 +37,8 @@ use vulkano::{
     render_pass::Subpass, sampler::{Sampler, SamplerCreateInfo, Filter, SamplerAddressMode}, format::Format,
 };
 
+use crate::scene_pkg::scene::Scene;
+
 /// Allows applying a directional light source to a scene.
 pub struct DirectionalLightingSystem {
     gfx_queue: Arc<Queue>,
@@ -132,10 +134,10 @@ impl DirectionalLightingSystem {
         position_input: Arc<dyn ImageViewAbstract + 'static>,
         color_input: Arc<dyn ImageViewAbstract + 'static>,
         normals_input: Arc<dyn ImageViewAbstract + 'static>,
-        depth_input: Arc<dyn ImageViewAbstract + 'static>,
         direction: Vector3<f32>,
         light_view: Matrix4<f32>,
         light_projection: Matrix4<f32>,
+        world: Matrix4<f32>,
         world_view_model: Matrix4<f32>,
         color: [f32; 3],
         shadow_image: Arc<AttachmentImage>,
@@ -143,22 +145,19 @@ impl DirectionalLightingSystem {
         let push_constants_fs = fs::ty::PushConstants {
             color: [color[0], color[1], color[2], 1.0],
             direction: direction.extend(0.0).into(),
-            light_view_model: (light_view * light_projection).into(),
-            world_view_model: world_view_model.into()
+            light_proj_view_model: (light_projection * light_view ).into(),
+            world: world.into(),
+            world_view_model: (world_view_model).into()
         };
 
-
-        let shadow_set = DirectionalLightingSystem::create_shadow_set(self.gfx_queue.clone(), shadow_image.clone());
-        
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
             [
-                shadow_set,
-                WriteDescriptorSet::image_view(1, position_input),
-                WriteDescriptorSet::image_view(2, color_input),
-                WriteDescriptorSet::image_view(3, normals_input),
-                WriteDescriptorSet::image_view(4, depth_input),
+                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 0, ImageView::new_default(shadow_image.clone()).unwrap()),
+                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 1, position_input.clone()),
+                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 2, color_input.clone()),
+                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 3, normals_input.clone())
                 
             ],
         )
@@ -198,11 +197,7 @@ impl DirectionalLightingSystem {
         builder.build().unwrap()
     }
 
-    fn create_shadow_set(gfx_queue: Arc<Queue>, shadow_image: Arc<AttachmentImage>,) -> WriteDescriptorSet {
-
-        let view = ImageView::new_default(shadow_image).unwrap();
-
-    
+    fn create_image_set(gfx_queue: Arc<Queue>, binding_index: u32, image_view: Arc<dyn ImageViewAbstract + 'static>,) -> WriteDescriptorSet {
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
             SamplerCreateInfo {
@@ -214,7 +209,7 @@ impl DirectionalLightingSystem {
         )
         .unwrap();
 
-        WriteDescriptorSet::image_view_sampler(0, view, sampler)
+        WriteDescriptorSet::image_view_sampler(binding_index, image_view, sampler)
     }
 }
 
@@ -253,20 +248,21 @@ mod fs {
 layout(set = 0, binding = 0) uniform sampler2D shadow_map;
 
 // The `position_input` parameter of the `draw` method.
-layout(input_attachment_index = 1, set = 0, binding = 1) uniform subpassInput u_position;
+layout(set = 0, binding = 1) uniform sampler2D u_position;
 // The `color_input` parameter of the `draw` method.
-layout(input_attachment_index = 2, set = 0, binding = 2) uniform subpassInput u_diffuse;
+layout(set = 0, binding = 2) uniform sampler2D u_diffuse;
 // The `normals_input` parameter of the `draw` method.
-layout(input_attachment_index = 3, set = 0, binding = 3) uniform subpassInput u_normals;
-// The `depth_input` parameter of the `draw` method.
-layout(input_attachment_index = 4, set = 0, binding = 4) uniform subpassInput u_depth;
+layout(set = 0, binding = 3) uniform sampler2D u_normals;
 
 layout(push_constant) uniform PushConstants {
     vec4 color;
     vec4 direction;
-    mat4 light_view_model;
+    mat4 light_proj_view_model;
+    mat4 world;
     mat4 world_view_model;
 } push_constants;
+
+
 
 
 
@@ -275,19 +271,33 @@ layout(location = 0) out vec4 f_color;
 
 
 void main() {
-    vec3 in_position = subpassLoad(u_position).rgb;
-    vec3 in_diffuse = subpassLoad(u_diffuse).rgb;
-    vec3 in_normal = normalize(subpassLoad(u_normals).rgb);
-    vec3 in_depth = normalize(subpassLoad(u_depth).rgb);
+    vec4 in_position = texture(u_position, v_frag_pos * 0.5 + 0.5);
+    vec3 in_diffuse = texture(u_diffuse, v_frag_pos * 0.5 + 0.5).rgb;
+    vec3 in_normal = normalize(texture(u_normals, v_frag_pos * 0.5 + 0.5).rgb);
     vec4 in_shadow_map = texture(shadow_map, v_frag_pos * 0.5 + 0.5);
 
 
     float light_percent = -dot(push_constants.direction.xyz, in_normal);
     light_percent = max(light_percent, 0.0);
 
-    
     f_color.rgb = light_percent * push_constants.color.rgb * in_diffuse;
     f_color.a = 1.0;
+
+    f_color =  in_position;
+    f_color =  push_constants.light_proj_view_model * push_constants.world * f_color;
+
+    float depth = texture(shadow_map, f_color.xy*0.5+0.5).r;
+
+    if (f_color.z - 0.005 > depth) {
+        f_color = vec4(1.0, 0.0, 0.0, 1.0);
+    }else{
+        f_color = vec4(1.0, 1.0, 1.0, 1.0);
+    }
+
+    //f_color = vec4(vec3(depth), 1.0);
+
+
+
 
     
 }",

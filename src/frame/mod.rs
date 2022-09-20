@@ -16,6 +16,5 @@ pub use self::system::{DrawPass, Frame, FrameSystem, LightingPass, Pass};
 
 mod directional_lighting_system;
 mod system;
-pub mod shadow_map_renderer;
-pub mod scene_shadow_pass;
-pub mod object_3d_shadow_pass;
+pub mod shadow_pass;
+pub mod deferred_pass;

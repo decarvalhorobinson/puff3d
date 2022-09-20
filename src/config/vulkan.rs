@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use cgmath::{Matrix4, SquareMatrix, Vector3, Rad};
+use cgmath::{Matrix4, SquareMatrix};
 use vulkano::device::{Device, DeviceExtensions, DeviceCreateInfo, QueueCreateInfo};
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
-use vulkano::format::Format;
-use vulkano::image::{ImageUsage, StorageImage, ImageDimensions, AttachmentImage};
+use vulkano::image::{ImageUsage};
 use vulkano::image::view::ImageView;
 use vulkano::instance::{Instance, InstanceCreateInfo};
 
@@ -18,11 +17,10 @@ use winit::{
     window::WindowBuilder,
 };
 
-use crate::frame::scene_shadow_pass::SceneShadowPass;
-use crate::frame::{Pass, scene_shadow_pass};
+use crate::frame::shadow_pass::shadow_map_renderer::ShadowMapRenderer;
+use crate::frame::deferred_pass::deferred_map_renderer::DeferredMapRenderer;
+use crate::frame::{Pass};
 use crate::frame::FrameSystem;
-use crate::frame::shadow_map_renderer::ShadowMapRenderer;
-use crate::scene_pkg::scene::Scene;
 use crate::system::draw_system::DrawSystem;
 use crate::system::scene_draw_system::SceneDrawSystem;
 
@@ -170,7 +168,8 @@ pub fn vulkan_init() {
    let mut scene_draw_system = SceneDrawSystem::new(scene.clone(), Arc::new(draw_system));
 
     let mut shadow_map_renderer = ShadowMapRenderer::new(queue.clone(), scene.clone());
-    let mut scene_shadow_pass = SceneShadowPass::new(scene.clone(), &shadow_map_renderer);
+
+    let mut deferred_map_renderer = DeferredMapRenderer::new(queue.clone(), scene.clone());
     
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
@@ -230,24 +229,43 @@ pub fn vulkan_init() {
                 recreate_swapchain = true;
             }
 
+            rotation += 0.01;
+            {
+                let mut scene_locked = scene.lock().unwrap();
+                scene_locked.rotate(rotation);
+            }
 
             let future = previous_frame_end.take().unwrap().join(acquire_future);
 
             shadow_map_renderer.begin_render_pass();
-            scene_shadow_pass.draw(&mut shadow_map_renderer);
-            let mut after_future = Some(shadow_map_renderer.end_render_pass(future));
+            shadow_map_renderer.draw();
+            let mut shadow_future = Some(shadow_map_renderer.end_render_pass(future));
+
+            deferred_map_renderer.begin_render_pass();
+            deferred_map_renderer.draw();
+            let mut deferred_future = deferred_map_renderer.end_render_pass(shadow_future.unwrap());
 
 
             let mut after_future2 = None;
-            let mut frame = frame_system.frame(after_future.unwrap(), images[image_num].clone(), Matrix4::identity(), shadow_map_renderer.final_image.clone());
+            let mut frame = frame_system.frame(deferred_future, images[image_num].clone(), Matrix4::identity(), shadow_map_renderer.final_image.clone());
             while let Some(pass) = frame.next_pass() {
                 match pass {
                     Pass::Deferred(draw_pass) => {
                         scene_draw_system.draw_deferred(draw_pass);
                     }
                     Pass::Lighting(mut lighting) => {
-                        let (light_view, light_projection) = scene.directional_lights[0].clone().view_projection();
-                        lighting.directional_light(scene.directional_lights[0].clone().direction(), [1.0, 1.0, 1.0], light_view, light_projection, scene.world_model * scene.active_camera.get_view_matrix());
+                        let scene_locked = scene.lock().unwrap();
+                        let (light_view, light_projection) = scene_locked.directional_lights[0].clone().view_projection();
+                        lighting.directional_light(
+                            scene_locked.directional_lights[0].clone().direction(),
+                             [1.0, 1.0, 1.0], 
+                             light_view, 
+                             light_projection, 
+                             scene_locked.world_model,
+                             scene_locked.active_camera.get_view_matrix(),
+                             deferred_map_renderer.position_buffer.clone(),
+                             deferred_map_renderer.albedo_specular_buffer.clone(),
+                             deferred_map_renderer.normals_buffer.clone());
                     }
                     Pass::Finished(af) => {
                         after_future2 = Some(af);
