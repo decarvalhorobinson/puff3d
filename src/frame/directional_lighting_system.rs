@@ -11,6 +11,7 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::SquareMatrix;
 use cgmath::{Vector3, Matrix4};
 use vulkano::image::AttachmentImage;
+use vulkano::sampler::BorderColor;
 use std::io::Read;
 use std::io::BufReader;
 use std::fs::File;
@@ -154,7 +155,7 @@ impl DirectionalLightingSystem {
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
             [
-                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 0, ImageView::new_default(shadow_image.clone()).unwrap()),
+                DirectionalLightingSystem::create_shadow_image_set(self.gfx_queue.clone(), 0, ImageView::new_default(shadow_image.clone()).unwrap()),
                 DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 1, position_input.clone()),
                 DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 2, color_input.clone()),
                 DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 3, normals_input.clone())
@@ -204,6 +205,22 @@ impl DirectionalLightingSystem {
                 mag_filter: Filter::Linear,
                 min_filter: Filter::Linear,
                 address_mode: [SamplerAddressMode::Repeat; 3],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        WriteDescriptorSet::image_view_sampler(binding_index, image_view, sampler)
+    }
+
+    fn create_shadow_image_set(gfx_queue: Arc<Queue>, binding_index: u32, image_view: Arc<dyn ImageViewAbstract + 'static>,) -> WriteDescriptorSet {
+        let sampler = Sampler::new(
+            gfx_queue.device().clone(),
+            SamplerCreateInfo {
+                mag_filter: Filter::Linear,
+                min_filter: Filter::Linear,
+                border_color: BorderColor::FloatOpaqueWhite,
+                address_mode: [SamplerAddressMode::ClampToBorder; 3],
                 ..Default::default()
             },
         )
@@ -269,6 +286,35 @@ layout(push_constant) uniform PushConstants {
 layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
 
+float shadow_calculation(float light_percent) {
+    vec4 in_position = texture(u_position, v_frag_pos * 0.5 + 0.5);
+
+    vec4 position_to_light = push_constants.light_proj_view_model * push_constants.world * in_position;
+    position_to_light.xy  = position_to_light.xy * 0.5 + 0.5;
+
+    float depth = texture(shadow_map, position_to_light.xy).r;
+
+    if (position_to_light.z > 1.0) {
+        return 0.0;
+    }
+
+    float bias = max(0.002 * (1.0 + light_percent), 0.0005); 
+    
+    
+    float shadow = 0.0;
+    vec2 texel_size = 1.0 / textureSize(shadow_map, 0);
+    for(int x = -1; x <= 1; ++x)
+    {
+        for(int y = -1; y <= 1; ++y)
+        {
+            float pcf_depth = texture(shadow_map, position_to_light.xy + vec2(x, y) * texel_size).r; 
+            shadow += position_to_light.z - bias > pcf_depth ? 1.0 : 0.0;        
+        }    
+    }
+    shadow /= 9.0;
+    return shadow;
+}
+
 
 void main() {
     vec4 in_position = texture(u_position, v_frag_pos * 0.5 + 0.5);
@@ -281,15 +327,9 @@ void main() {
     float light_percent = -dot(light_to_world.xyz, in_normal);
     light_percent = max(light_percent, 0.3);
 
-    vec4 position_to_light =  push_constants.light_proj_view_model * push_constants.world * in_position;
-
-    float depth = texture(shadow_map, position_to_light.xy*0.5+0.5).r;
-
-    if (position_to_light.z - 0.005 > depth) {
-        f_color.rgb = push_constants.color.rgb * in_diffuse * 0.1;
-    }else{
-        f_color.rgb = light_percent * push_constants.color.rgb * in_diffuse;
-    }
+    float shadow = shadow_calculation(light_percent);
+    vec3 ambient_light = (vec3(0.2, 0.2, 0.2) * in_diffuse);
+    f_color.rgb = push_constants.color.rgb * in_diffuse * (1-shadow) * light_percent + ambient_light;
     f_color.a = 1.0;
     
 }",

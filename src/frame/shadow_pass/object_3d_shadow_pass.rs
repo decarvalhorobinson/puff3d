@@ -8,6 +8,8 @@
 // according to those terms.
 
 use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use vulkano::pipeline::graphics::rasterization::CullMode;
+use vulkano::pipeline::graphics::rasterization::RasterizationState;
 use vulkano::render_pass::RenderPass;
 use std::io::Read;
 use std::io::BufReader;
@@ -150,6 +152,7 @@ impl Object3DShadowPass{
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
             .fragment_shader(fs.entry_point("main").unwrap(), ())
             .depth_stencil_state(DepthStencilState::simple_depth_test())
+            .rasterization_state(RasterizationState::default().cull_mode(CullMode::Front))
             .render_pass(subpass.clone())
             .build(gfx_queue.device().clone())
             .unwrap()
