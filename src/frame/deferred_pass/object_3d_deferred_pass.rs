@@ -400,14 +400,15 @@ layout(set = 0, binding = 0) uniform Data {
 
 void main() {
     mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
+    mat4 model_view = uniforms.view * uniforms.model;
     v_normal = mat3(worldview) * normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
     v_uv = uv;
 
     v_position = vec4(position, 1.0);
 
-    vec3 t = normalize(vec3(worldview * vec4(tangent,   0.0)));
-    vec3 n = normalize(vec3(worldview * vec4(normal,    0.0)));
+    vec3 t = normalize(vec3(model_view * vec4(tangent,   0.0)));
+    vec3 n = normalize(vec3(model_view * vec4(normal,    0.0)));
 
     t = normalize(t- dot(t, n) * n);
     vec3 b = cross(n, t);
@@ -449,7 +450,7 @@ void main() {
     //f_color = vec4(0.5, 0.5, 0.5, 1.0);
 
     f_normal = texture(normal_map, v_uv).rgb;
-    f_normal = -(f_normal * 2.0 - 1.0);
+    f_normal = (f_normal * 2.0 - 1.0);
     f_normal = normalize(v_tbn * f_normal);
 }"
     }

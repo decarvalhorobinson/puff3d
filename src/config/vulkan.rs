@@ -176,6 +176,7 @@ pub fn vulkan_init() {
 
     
     let mut rotation = 0.0;
+    let mut rotation_light = 0.0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -229,11 +230,12 @@ pub fn vulkan_init() {
                 recreate_swapchain = true;
             }
 
-            rotation += 0.01;
+            rotation += 0.00;
+            rotation_light += 0.005;
             {
                 let mut scene_locked = scene.lock().unwrap();
                 scene_locked.rotate(rotation);
-                let light_rot = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(rotation as f32)) * Point3::new(-40.0, 50.0, -40.0).to_homogeneous();
+                let light_rot = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(rotation_light as f32)) * Point3::new(40.0, 50.0, -20.0).to_homogeneous();
                 scene_locked.directional_lights[0].position = Point3::new(light_rot.x, light_rot.y, light_rot.z);
 
             }

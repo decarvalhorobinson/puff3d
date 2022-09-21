@@ -27,7 +27,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
         world_model: Matrix4::identity(),
         directional_lights: vec![
             DirectionalLight {
-                position: Point3::new(-40.0, 50.0, -40.0),
+                position: Point3::new(-40.0, 30.0, -40.0),
                 center: Point3::new(0.0, 0.0, 0.0), 
                 color: [1.0, 1.0, 1.0],
             }
@@ -40,7 +40,10 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.mesh = obj_to_mesh_converter.create_mesh();
     obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
     obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
+    obj.transform.scale = Vector3::new(5.0, 5.0, 5.0);
+    obj.update_model_matrix();
     scene.objects.push(obj);
+    
 
     let mut obj = Object3D::new();
     obj.mesh = get_example_mesh_cottage_house();

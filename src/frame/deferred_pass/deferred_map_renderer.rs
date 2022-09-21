@@ -49,7 +49,7 @@ impl DeferredMapRenderer {
                 normals: {
                     load: Clear,
                     store: Store,
-                    format: Format::R16G16B16A16_SFLOAT,
+                    format: Format::R16G16B16A16_SNORM,
                     samples: 1,
                 },
                 // Will be bound to `self.depth_buffer`.
@@ -74,7 +74,7 @@ impl DeferredMapRenderer {
         let position_buffer = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
-                [1024, 1024],
+                [2048, 2048],
                 Format::R16G16B16A16_SFLOAT,
                 ImageUsage {
                     transient_attachment: false,
@@ -90,7 +90,7 @@ impl DeferredMapRenderer {
         let albedo_specular_buffer = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
-                [1024, 1024],
+                [2048, 2048],
                 Format::R16G16B16A16_SFLOAT,
                 ImageUsage {
                     transient_attachment: false,
@@ -105,8 +105,8 @@ impl DeferredMapRenderer {
         let normals_buffer = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
-                [1024, 1024],
-                Format::R16G16B16A16_SFLOAT,
+                [2048, 2048],
+                Format::R16G16B16A16_SNORM,
                 ImageUsage {
                     transient_attachment: false,
                     input_attachment: false,
@@ -120,7 +120,7 @@ impl DeferredMapRenderer {
         let depth_buffer = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
-                [1024, 1024],
+                [2048, 2048],
                 Format::D16_UNORM,
                 ImageUsage {
                     transient_attachment: true,
