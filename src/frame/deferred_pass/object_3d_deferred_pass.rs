@@ -399,13 +399,13 @@ layout(set = 0, binding = 0) uniform Data {
 } uniforms;
 
 void main() {
-    mat4 worldview = uniforms.view * uniforms.world * uniforms.model;
+    mat4 worldview = uniforms.view  * uniforms.model * uniforms.world;
     mat4 model_view = uniforms.view * uniforms.model;
     v_normal = mat3(worldview) * normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
     v_uv = uv;
 
-    v_position = vec4(position, 1.0);
+    v_position = uniforms.model * vec4(position, 1.0);
 
     vec3 t = normalize(vec3(model_view * vec4(tangent,   0.0)));
     vec3 n = normalize(vec3(model_view * vec4(normal,    0.0)));
