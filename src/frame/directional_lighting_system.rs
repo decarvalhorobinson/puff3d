@@ -277,16 +277,16 @@ void main() {
     vec4 in_shadow_map = texture(shadow_map, v_frag_pos * 0.5 + 0.5);
 
 
-    vec4 light_to_world = normalize(inverse(push_constants.world) * push_constants.direction);
+    vec4 light_to_world = normalize(inverse(push_constants.world_view_model) * push_constants.direction);
     float light_percent = -dot(light_to_world.xyz, in_normal);
-    light_percent = max(light_percent, 0.5);
+    light_percent = max(light_percent, 0.3);
 
     vec4 position_to_light =  push_constants.light_proj_view_model * push_constants.world * in_position;
 
     float depth = texture(shadow_map, position_to_light.xy*0.5+0.5).r;
 
     if (position_to_light.z - 0.005 > depth) {
-        f_color.rgb = push_constants.color.rgb * in_diffuse * 0.2;
+        f_color.rgb = push_constants.color.rgb * in_diffuse * 0.1;
     }else{
         f_color.rgb = light_percent * push_constants.color.rgb * in_diffuse;
     }
