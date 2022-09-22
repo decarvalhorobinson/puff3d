@@ -15,7 +15,13 @@ impl ops::Sub<Vertex> for Vertex {
     type Output = Vertex;
 
     fn sub(self, rhs: Vertex) -> Self::Output {
-        Vertex{ position: [ self.position[0] - rhs.position[0], self.position[1] - rhs.position[1], self.position[2] - rhs.position[2] ]}
+        Vertex {
+            position: [
+                self.position[0] - rhs.position[0],
+                self.position[1] - rhs.position[1],
+                self.position[2] - rhs.position[2],
+            ],
+        }
     }
 }
 
@@ -23,7 +29,13 @@ impl ops::Mul<f32> for Vertex {
     type Output = Vertex;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        Vertex{position: [self.position[0] * rhs, self.position[1] * rhs, self.position[2] * rhs]}
+        Vertex {
+            position: [
+                self.position[0] * rhs,
+                self.position[1] * rhs,
+                self.position[2] * rhs,
+            ],
+        }
     }
 }
 
@@ -55,7 +67,9 @@ impl ops::Sub<Uv> for Uv {
     type Output = Uv;
 
     fn sub(self, rhs: Uv) -> Self::Output {
-        Uv{ uv: [ self.uv[0] - rhs.uv[0], self.uv[1] - rhs.uv[1]]}
+        Uv {
+            uv: [self.uv[0] - rhs.uv[0], self.uv[1] - rhs.uv[1]],
+        }
     }
 }
 
@@ -66,18 +80,5 @@ pub struct Mesh {
     pub normals: Vec<Normal>,
     pub uvs: Vec<Uv>,
     pub tangent: Vec<Tangent>,
-    pub indices: Vec<u16>
-    
-}
-
-impl Mesh {
-    pub fn new(vertices: Vec<Vertex>, normals: Vec<Normal>, uvs: Vec<Uv>, tangent: Vec<Tangent>, indices: Vec<u16>) -> Mesh {
-        Mesh {
-            vertices,
-            normals,
-            uvs,
-            tangent,
-            indices
-        }
-    }
+    pub indices: Vec<u16>,
 }

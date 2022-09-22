@@ -1,22 +1,10 @@
-// Copyright (c) 2017 The vulkano developers
-// Licensed under the Apache License, Version 2.0
-// <LICENSE-APACHE or
-// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
-// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
-// at your option. All files in the project carrying such
-// notice may not be copied, modified, or distributed except
-// according to those terms.
-
-use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use cgmath::Matrix4;
+use std::sync::Arc;
 use vulkano::pipeline::graphics::rasterization::CullMode;
 use vulkano::pipeline::graphics::rasterization::RasterizationState;
 use vulkano::render_pass::RenderPass;
-use std::io::Read;
-use std::io::BufReader;
-use std::fs::File;
-use std::{sync::Arc, io::Cursor};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool},
+    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
         SecondaryAutoCommandBuffer,
@@ -35,35 +23,33 @@ use vulkano::{
     render_pass::Subpass,
 };
 
-use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
+use crate::scene_pkg::mesh::Vertex;
 use crate::scene_pkg::object3d::Object3D;
 
-use super::shadow_map_renderer::ShadowMapRenderer;
-
-pub struct Object3DShadowPass{
+pub struct Object3DShadowPass {
     gfx_queue: Arc<Queue>,
     object_3d: Object3D,
     pipeline_depth: Arc<GraphicsPipeline>,
-    subpass: Subpass, 
-    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>, 
-    index_buffer: Arc<CpuAccessibleBuffer<[u16]>>, 
-    uniform_data_buffer: CpuBufferPool<vs_depth::ty::Data>
+    subpass: Subpass,
+    vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
+    uniform_data_buffer: CpuBufferPool<vs_depth::ty::Data>,
 }
 
-impl Object3DShadowPass{
+impl Object3DShadowPass {
     /// Initializes a triangle drawing system.
     pub fn new(
         gfx_queue: Arc<Queue>,
         render_pass: Arc<RenderPass>,
-        object_3d: Object3D
+        object_3d: Object3D,
     ) -> Object3DShadowPass {
-
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
-        let (vertex_buffer, index_buffer, uniform_data_buffer) = 
+        let (vertex_buffer, index_buffer, uniform_data_buffer) =
             Object3DShadowPass::create_buffers(gfx_queue.clone(), object_3d.clone());
 
-        let pipeline_depth = Object3DShadowPass::create_depth_pipeline(gfx_queue.clone(), subpass.clone());
+        let pipeline_depth =
+            Object3DShadowPass::create_depth_pipeline(gfx_queue.clone(), subpass.clone());
 
         Object3DShadowPass {
             gfx_queue,
@@ -72,13 +58,17 @@ impl Object3DShadowPass{
             subpass,
             vertex_buffer,
             index_buffer,
-            uniform_data_buffer
+            uniform_data_buffer,
         }
     }
 
-
-    pub fn draw(&mut self, viewport_dimensions: [u32; 2],  world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
-
+    pub fn draw(
+        &mut self,
+        viewport_dimensions: [u32; 2],
+        world: Matrix4<f32>,
+        projection: Matrix4<f32>,
+        view: Matrix4<f32>,
+    ) -> SecondaryAutoCommandBuffer {
         //descriptor set
         let uniform_buffer_subbuffer = {
             let scale = Matrix4::from_scale(1.0);
@@ -127,9 +117,8 @@ impl Object3DShadowPass{
                 self.pipeline_depth.layout().clone(),
                 0,
                 set,
-
             )
-            .bind_vertex_buffers(0, (self.vertex_buffer.clone()))
+            .bind_vertex_buffers(0, self.vertex_buffer.clone())
             .bind_index_buffer(self.index_buffer.clone())
             .draw_indexed(self.index_buffer.len() as u32, 1, 0, 0, 0)
             .unwrap();
@@ -139,14 +128,13 @@ impl Object3DShadowPass{
     // private methods
 
     fn create_depth_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
-        let vs = vs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
-        let fs = fs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let vs =
+            vs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let fs =
+            fs_depth::load(gfx_queue.device().clone()).expect("failed to create shader module");
 
         GraphicsPipeline::start()
-            .vertex_input_state(
-                BuffersDefinition::new()
-                    .vertex::<Vertex>(),
-            )
+            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
             .vertex_shader(vs.entry_point("main").unwrap(), ())
             .input_assembly_state(InputAssemblyState::new())
             .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
@@ -158,7 +146,14 @@ impl Object3DShadowPass{
             .unwrap()
     }
 
-    fn create_buffers(gfx_queue: Arc<Queue>,  object_3d: Object3D) -> (Arc<CpuAccessibleBuffer<[Vertex]>>, Arc<CpuAccessibleBuffer<[u16]>>, CpuBufferPool<vs_depth::ty::Data>) {
+    fn create_buffers(
+        gfx_queue: Arc<Queue>,
+        object_3d: Object3D,
+    ) -> (
+        Arc<CpuAccessibleBuffer<[Vertex]>>,
+        Arc<CpuAccessibleBuffer<[u16]>>,
+        CpuBufferPool<vs_depth::ty::Data>,
+    ) {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -194,14 +189,13 @@ impl Object3DShadowPass{
         );
 
         (vertex_buffer, index_buffer, uniform_buffer_depth)
-
     }
 }
 
 mod vs_depth {
     vulkano_shaders::shader! {
-        ty: "vertex",
-        src: "
+            ty: "vertex",
+            src: "
 #version 450
 
 layout(location = 0) in vec3 position;
@@ -218,12 +212,12 @@ void main() {
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);
 
 }",
-types_meta: {
-    use bytemuck::{Pod, Zeroable};
+    types_meta: {
+        use bytemuck::{Pod, Zeroable};
 
-    #[derive(Clone, Copy, Zeroable, Pod)]
-}
+        #[derive(Clone, Copy, Zeroable, Pod)]
     }
+        }
 }
 
 mod fs_depth {

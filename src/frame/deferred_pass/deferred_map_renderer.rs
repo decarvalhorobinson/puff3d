@@ -1,16 +1,25 @@
 use std::sync::{Arc, Mutex};
-use vulkano::{sync::{self, GpuFuture}, image::{AttachmentImage, ImageUsage}, format::Format};
+use vulkano::{
+    format::Format,
+    image::{AttachmentImage, ImageUsage},
+    sync::GpuFuture,
+};
 
-use cgmath::{Matrix4, SquareMatrix};
-use image::{ImageBuffer, Rgba};
-use vulkano::{device::Queue, render_pass::{Subpass, RenderPass, Framebuffer, FramebufferCreateInfo}, command_buffer::{PrimaryAutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents, SecondaryCommandBuffer, CopyImageToBufferInfo}, image::{ImageViewAbstract, StorageImage, view::ImageView}, buffer::{CpuAccessibleBuffer, BufferUsage}};
+use vulkano::{
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SecondaryCommandBuffer, SubpassContents,
+    },
+    device::Queue,
+    image::view::ImageView,
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+};
 
 use crate::scene_pkg::scene::Scene;
 
 use super::object_3d_deferred_pass::Object3DDeferredPass;
 
 pub struct DeferredMapRenderer {
-
     pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
@@ -23,11 +32,9 @@ pub struct DeferredMapRenderer {
     pub albedo_specular_image: Arc<ImageView<AttachmentImage>>,
     pub normals_image: Arc<ImageView<AttachmentImage>>,
     depth_image: Arc<ImageView<AttachmentImage>>,
-    
 }
 
 impl DeferredMapRenderer {
-
     pub fn new(gfx_queue: Arc<Queue>, scene: Arc<Mutex<Scene>>) -> DeferredMapRenderer {
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
@@ -135,15 +142,15 @@ impl DeferredMapRenderer {
         let scene_locked = scene.lock().unwrap();
         let mut object_3d_passes: Vec<Object3DDeferredPass> = vec![];
         object_3d_passes.reserve(scene_locked.objects.len());
-        for object_3d in scene_locked.objects.clone()  {
+        for object_3d in scene_locked.objects.clone() {
             object_3d_passes.push(Object3DDeferredPass::new(
                 gfx_queue.clone(),
                 render_pass.clone(),
-                object_3d
+                object_3d,
             ));
         }
 
-        DeferredMapRenderer { 
+        DeferredMapRenderer {
             scene: scene.clone(),
             gfx_queue: gfx_queue.clone(),
             render_pass: render_pass,
@@ -154,9 +161,7 @@ impl DeferredMapRenderer {
             position_image: position_image,
             albedo_specular_image: albedo_specular_image,
             normals_image: normals_image,
-            depth_image: depth_image
-            
-
+            depth_image: depth_image,
         }
     }
 
@@ -171,23 +176,26 @@ impl DeferredMapRenderer {
         }
 
         for i in 0..self.object_3d_passes.len() {
-
-            let cb = self.object_3d_passes[i].draw(self.framebuffer.clone().unwrap().extent(), world,  projection, view);
+            let cb = self.object_3d_passes[i].draw(
+                self.framebuffer.clone().unwrap().extent(),
+                world,
+                projection,
+                view,
+            );
             self.execute_draw_pass(cb);
         }
-
-
     }
 
-
-    pub fn begin_render_pass(
-        &mut self
-    )
-    {
+    pub fn begin_render_pass(&mut self) {
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![self.position_image.clone(), self.albedo_specular_image.clone(), self.normals_image.clone(), self.depth_image.clone()],
+                attachments: vec![
+                    self.position_image.clone(),
+                    self.albedo_specular_image.clone(),
+                    self.normals_image.clone(),
+                    self.depth_image.clone(),
+                ],
                 ..Default::default()
             },
         )
@@ -213,8 +221,7 @@ impl DeferredMapRenderer {
             )
             .unwrap();
         self.framebuffer = Some(framebuffer);
-        self.command_buffer_builder= Some(command_buffer_builder);
-
+        self.command_buffer_builder = Some(command_buffer_builder);
     }
 
     pub fn execute_draw_pass<C>(&mut self, command_buffer: C)
@@ -228,8 +235,10 @@ impl DeferredMapRenderer {
             .unwrap();
     }
 
-    pub fn end_render_pass<F: GpuFuture + 'static>(&mut self, future: F) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer>  {
-
+    pub fn end_render_pass<F: GpuFuture + 'static>(
+        &mut self,
+        future: F,
+    ) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer> {
         self.command_buffer_builder
             .as_mut()
             .unwrap()
@@ -237,15 +246,13 @@ impl DeferredMapRenderer {
             .unwrap();
         let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
 
-        future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap()
-
-
-
+        future
+            .then_execute(self.gfx_queue.clone(), command_buffer)
+            .unwrap()
     }
-    
+
     #[inline]
     pub fn viewport_dimensions(&self) -> [u32; 2] {
         self.framebuffer.clone().unwrap().extent()
     }
-    
 }

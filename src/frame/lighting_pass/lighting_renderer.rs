@@ -1,16 +1,21 @@
 use std::sync::{Arc, Mutex};
-use vulkano::{sync::{self, GpuFuture}, image::{AttachmentImage, ImageUsage}, format::Format};
+use vulkano::{format::Format, sync::GpuFuture};
 
-use cgmath::{Matrix4, SquareMatrix};
-use image::{ImageBuffer, Rgba};
-use vulkano::{device::Queue, render_pass::{Subpass, RenderPass, Framebuffer, FramebufferCreateInfo}, command_buffer::{PrimaryAutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents, SecondaryCommandBuffer, CopyImageToBufferInfo}, image::{ImageViewAbstract, StorageImage, view::ImageView}, buffer::{CpuAccessibleBuffer, BufferUsage}};
+use vulkano::{
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SecondaryCommandBuffer, SubpassContents,
+    },
+    device::Queue,
+    image::ImageViewAbstract,
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+};
 
 use crate::scene_pkg::scene::Scene;
 
 use super::lighting_pass::LightingPass;
 
 pub struct LightingRenderer {
-
     pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
@@ -18,15 +23,13 @@ pub struct LightingRenderer {
 
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
-    
 }
 
 impl LightingRenderer {
-
     pub fn new(
-        gfx_queue: Arc<Queue>, 
-        scene: Arc<Mutex<Scene>>, 
-        final_output_format: Format
+        gfx_queue: Arc<Queue>,
+        scene: Arc<Mutex<Scene>>,
+        final_output_format: Format,
     ) -> LightingRenderer {
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
@@ -51,16 +54,15 @@ impl LightingRenderer {
         let scene_locked = scene.lock().unwrap();
         let mut lighting_passes: Vec<LightingPass> = vec![];
         lighting_passes.reserve(scene_locked.objects.len());
-        for dir_light in scene_locked.directional_lights.clone()  {
+        for dir_light in scene_locked.directional_lights.clone() {
             lighting_passes.push(LightingPass::new(
                 gfx_queue.clone(),
                 render_pass.clone(),
-                dir_light
+                dir_light,
             ));
         }
 
-        
-        LightingRenderer { 
+        LightingRenderer {
             scene: scene.clone(),
             gfx_queue: gfx_queue.clone(),
             render_pass: render_pass,
@@ -75,7 +77,7 @@ impl LightingRenderer {
         shadow_image: Arc<dyn ImageViewAbstract + 'static>,
         position_image: Arc<dyn ImageViewAbstract + 'static>,
         color_image: Arc<dyn ImageViewAbstract + 'static>,
-        normals_image: Arc<dyn ImageViewAbstract + 'static>
+        normals_image: Arc<dyn ImageViewAbstract + 'static>,
     ) {
         let view;
         let world;
@@ -86,36 +88,24 @@ impl LightingRenderer {
         }
 
         for i in 0..self.lighting_passes.len() {
-
             let cb = self.lighting_passes[i].draw(
-                self.framebuffer.clone().unwrap().extent(), 
-                world,  
+                self.framebuffer.clone().unwrap().extent(),
+                world,
                 view,
                 shadow_image.clone(),
                 position_image.clone(),
                 color_image.clone(),
-                normals_image.clone()
-
+                normals_image.clone(),
             );
             self.execute_draw_pass(cb);
         }
-
-
     }
 
-
-    pub fn begin_render_pass(
-        &mut self,
-        final_image: Arc<dyn ImageViewAbstract + 'static>
-    )
-    {
-
+    pub fn begin_render_pass(&mut self, final_image: Arc<dyn ImageViewAbstract + 'static>) {
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![
-                    final_image.clone()
-                ],
+                attachments: vec![final_image.clone()],
                 ..Default::default()
             },
         )
@@ -142,8 +132,7 @@ impl LightingRenderer {
             )
             .unwrap();
         self.framebuffer = Some(framebuffer);
-        self.command_buffer_builder= Some(command_buffer_builder);
-
+        self.command_buffer_builder = Some(command_buffer_builder);
     }
 
     pub fn execute_draw_pass<C>(&mut self, command_buffer: C)
@@ -157,8 +146,10 @@ impl LightingRenderer {
             .unwrap();
     }
 
-    pub fn end_render_pass<F: GpuFuture + 'static>(&mut self, future: F) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer>  {
-
+    pub fn end_render_pass<F: GpuFuture + 'static>(
+        &mut self,
+        future: F,
+    ) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer> {
         self.command_buffer_builder
             .as_mut()
             .unwrap()
@@ -166,10 +157,8 @@ impl LightingRenderer {
             .unwrap();
         let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
 
-        future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap()
-
-
-
+        future
+            .then_execute(self.gfx_queue.clone(), command_buffer)
+            .unwrap()
     }
-    
 }

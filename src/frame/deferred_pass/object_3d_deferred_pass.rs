@@ -1,29 +1,20 @@
-// Copyright (c) 2017 The vulkano developers
-// Licensed under the Apache License, Version 2.0
-// <LICENSE-APACHE or
-// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
-// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
-// at your option. All files in the project carrying such
-// notice may not be copied, modified, or distributed except
-// according to those terms.
-
-use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use cgmath::Matrix4;
+use std::fs::File;
+use std::io::BufReader;
+use std::io::Read;
+use std::{io::Cursor, sync::Arc};
 use vulkano::format::Format;
+use vulkano::image::view::ImageView;
 use vulkano::image::ImageDimensions;
 use vulkano::image::ImmutableImage;
 use vulkano::image::MipmapsCount;
-use vulkano::image::view::ImageView;
 use vulkano::render_pass::RenderPass;
 use vulkano::sampler::Filter;
 use vulkano::sampler::Sampler;
 use vulkano::sampler::SamplerAddressMode;
 use vulkano::sampler::SamplerCreateInfo;
-use std::io::Read;
-use std::io::BufReader;
-use std::fs::File;
-use std::{sync::Arc, io::Cursor};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool},
+    buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
         SecondaryAutoCommandBuffer,
@@ -42,7 +33,7 @@ use vulkano::{
     render_pass::Subpass,
 };
 
-use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
+use crate::scene_pkg::mesh::{Normal, Tangent, Uv, Vertex};
 use crate::scene_pkg::object3d::Object3D;
 
 #[repr(C)]
@@ -56,33 +47,40 @@ pub struct Buffers {
     pub uniform_buffer: CpuBufferPool<vs::ty::Data>,
 }
 
-pub struct Object3DDeferredPass{
+pub struct Object3DDeferredPass {
     gfx_queue: Arc<Queue>,
     object_3d: Object3D,
     pipeline: Arc<GraphicsPipeline>,
-    subpass: Subpass, 
+    subpass: Subpass,
     buffers: Buffers,
     albedo_set: Arc<PersistentDescriptorSet>,
     normal_set: Arc<PersistentDescriptorSet>,
 }
 
-impl Object3DDeferredPass{
+impl Object3DDeferredPass {
     /// Initializes a triangle drawing system.
     pub fn new(
         gfx_queue: Arc<Queue>,
         render_pass: Arc<RenderPass>,
-        object_3d: Object3D
+        object_3d: Object3D,
     ) -> Object3DDeferredPass {
-
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
         let buffers = Object3DDeferredPass::create_buffers(gfx_queue.clone(), object_3d.clone());
 
         let pipeline = Object3DDeferredPass::create_pipeline(gfx_queue.clone(), subpass.clone());
 
-        let albedo_set = Object3DDeferredPass::create_albedo_set(gfx_queue.clone(), pipeline.clone(), object_3d.clone());
-    
-        let normal_set = Object3DDeferredPass::create_normal_set(gfx_queue.clone(), pipeline.clone(), object_3d.clone());
+        let albedo_set = Object3DDeferredPass::create_albedo_set(
+            gfx_queue.clone(),
+            pipeline.clone(),
+            object_3d.clone(),
+        );
+
+        let normal_set = Object3DDeferredPass::create_normal_set(
+            gfx_queue.clone(),
+            pipeline.clone(),
+            object_3d.clone(),
+        );
 
         Object3DDeferredPass {
             gfx_queue,
@@ -91,16 +89,19 @@ impl Object3DDeferredPass{
             subpass,
             buffers,
             albedo_set,
-            normal_set
+            normal_set,
         }
     }
 
-
-    pub fn draw(&mut self, viewport_dimensions: [u32; 2], world: Matrix4<f32>, projection: Matrix4<f32>, view: Matrix4<f32>) -> SecondaryAutoCommandBuffer {
-
+    pub fn draw(
+        &mut self,
+        viewport_dimensions: [u32; 2],
+        world: Matrix4<f32>,
+        projection: Matrix4<f32>,
+        view: Matrix4<f32>,
+    ) -> SecondaryAutoCommandBuffer {
         //descriptor set
         let uniform_buffer_subbuffer = {
-
             let uniform_data = vs::ty::Data {
                 model: self.object_3d.model_matrix.into(),
                 world: world.into(),
@@ -158,7 +159,15 @@ impl Object3DDeferredPass{
                 2,
                 self.normal_set.clone(),
             )
-            .bind_vertex_buffers(0, (self.buffers.vertex_buffer.clone(), self.buffers.normals_buffer.clone(), self.buffers.uv_buffer.clone(), self.buffers.tangent_buffer.clone()))
+            .bind_vertex_buffers(
+                0,
+                (
+                    self.buffers.vertex_buffer.clone(),
+                    self.buffers.normals_buffer.clone(),
+                    self.buffers.uv_buffer.clone(),
+                    self.buffers.tangent_buffer.clone(),
+                ),
+            )
             .bind_index_buffer(self.buffers.index_buffer.clone())
             .draw_indexed(self.buffers.index_buffer.len() as u32, 1, 0, 0, 0)
             .unwrap();
@@ -189,8 +198,12 @@ impl Object3DDeferredPass{
             .unwrap()
     }
 
-    fn create_normal_set(gfx_queue: Arc<Queue>, pipeline: Arc<GraphicsPipeline>, object_3d: Object3D) -> Arc<PersistentDescriptorSet> {
-        let (normal, normal_future) = {
+    fn create_normal_set(
+        gfx_queue: Arc<Queue>,
+        pipeline: Arc<GraphicsPipeline>,
+        object_3d: Object3D,
+    ) -> Arc<PersistentDescriptorSet> {
+        let (normal, _normal_future) = {
             let f = File::open(object_3d.material.normal_file_path.clone()).unwrap();
             let mut reader = BufReader::new(f);
             let mut png_bytes = Vec::new();
@@ -208,7 +221,7 @@ impl Object3DDeferredPass{
             let mut image_data = Vec::new();
             image_data.resize((info.width * info.height * 4) as usize, 0);
             reader.next_frame(&mut image_data).unwrap();
-    
+
             let (image, future) = ImmutableImage::from_iter(
                 image_data,
                 dimensions,
@@ -219,7 +232,7 @@ impl Object3DDeferredPass{
             .unwrap();
             (ImageView::new_default(image).unwrap(), future)
         };
-    
+
         let normal_sampler = Sampler::new(
             gfx_queue.device().clone(),
             SamplerCreateInfo {
@@ -234,15 +247,23 @@ impl Object3DDeferredPass{
         let layout = pipeline.layout().set_layouts().get(2).unwrap();
         let normal_set = PersistentDescriptorSet::new(
             layout.clone(),
-            [WriteDescriptorSet::image_view_sampler(0, normal, normal_sampler)],
+            [WriteDescriptorSet::image_view_sampler(
+                0,
+                normal,
+                normal_sampler,
+            )],
         )
         .unwrap();
 
         normal_set
     }
 
-    fn create_albedo_set(gfx_queue: Arc<Queue>, pipeline: Arc<GraphicsPipeline>, object_3d: Object3D) -> Arc<PersistentDescriptorSet> {
-        let (texture, tex_future) = {
+    fn create_albedo_set(
+        gfx_queue: Arc<Queue>,
+        pipeline: Arc<GraphicsPipeline>,
+        object_3d: Object3D,
+    ) -> Arc<PersistentDescriptorSet> {
+        let (texture, _tex_future) = {
             let f = File::open(object_3d.material.diffuse_file_path.clone()).unwrap();
             let mut reader = BufReader::new(f);
             let mut png_bytes = Vec::new();
@@ -260,7 +281,7 @@ impl Object3DDeferredPass{
             let mut image_data = Vec::new();
             image_data.resize((info.width * info.height * 6) as usize, 0);
             reader.next_frame(&mut image_data).unwrap();
-    
+
             let (image, future) = ImmutableImage::from_iter(
                 image_data,
                 dimensions,
@@ -271,7 +292,7 @@ impl Object3DDeferredPass{
             .unwrap();
             (ImageView::new_default(image).unwrap(), future)
         };
-    
+
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
             SamplerCreateInfo {
@@ -293,7 +314,7 @@ impl Object3DDeferredPass{
         diffuse_set
     }
 
-    pub fn create_buffers(gfx_queue: Arc<Queue>,  object_3d: Object3D) -> Buffers {
+    pub fn create_buffers(gfx_queue: Arc<Queue>, object_3d: Object3D) -> Buffers {
         let vertex_buffer = {
             CpuAccessibleBuffer::from_iter(
                 gfx_queue.device().clone(),
@@ -367,15 +388,21 @@ impl Object3DDeferredPass{
             },
         );
 
-        Buffers{vertex_buffer, normals_buffer, uv_buffer, tangent_buffer, index_buffer, uniform_buffer}
-
+        Buffers {
+            vertex_buffer,
+            normals_buffer,
+            uv_buffer,
+            tangent_buffer,
+            index_buffer,
+            uniform_buffer,
+        }
     }
 }
 
 mod vs {
     vulkano_shaders::shader! {
-        ty: "vertex",
-        src: "
+            ty: "vertex",
+            src: "
 #version 450
 
 layout(location = 0) in vec3 position;
@@ -413,12 +440,12 @@ void main() {
     v_tbn = mat3(t, b, n);
 
 }",
-types_meta: {
-    use bytemuck::{Pod, Zeroable};
+    types_meta: {
+        use bytemuck::{Pod, Zeroable};
 
-    #[derive(Clone, Copy, Zeroable, Pod)]
-}
+        #[derive(Clone, Copy, Zeroable, Pod)]
     }
+        }
 }
 
 mod fs {

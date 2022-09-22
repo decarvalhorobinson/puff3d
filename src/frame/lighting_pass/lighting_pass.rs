@@ -1,20 +1,8 @@
-// Copyright (c) 2017 The vulkano developers
-// Licensed under the Apache License, Version 2.0
-// <LICENSE-APACHE or
-// https://www.apache.org/licenses/LICENSE-2.0> or the MIT
-// license <LICENSE-MIT or https://opensource.org/licenses/MIT>,
-// at your option. All files in the project carrying such
-// notice may not be copied, modified, or distributed except
-// according to those terms.
-
-use bytemuck::{Zeroable, Pod};
-use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
-use vulkano::format::Format;
-use vulkano::image::ImageDimensions;
+use bytemuck::{Pod, Zeroable};
+use cgmath::Matrix4;
+use std::sync::Arc;
+use std::sync::Mutex;
 use vulkano::image::ImageViewAbstract;
-use vulkano::image::ImmutableImage;
-use vulkano::image::MipmapsCount;
-use vulkano::image::view::ImageView;
 use vulkano::impl_vertex;
 use vulkano::pipeline::graphics::color_blend::AttachmentBlend;
 use vulkano::pipeline::graphics::color_blend::BlendFactor;
@@ -26,13 +14,8 @@ use vulkano::sampler::Filter;
 use vulkano::sampler::Sampler;
 use vulkano::sampler::SamplerAddressMode;
 use vulkano::sampler::SamplerCreateInfo;
-use std::io::Read;
-use std::io::BufReader;
-use std::fs::File;
-use std::sync::Mutex;
-use std::{sync::Arc, io::Cursor};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool},
+    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
         SecondaryAutoCommandBuffer,
@@ -41,7 +24,6 @@ use vulkano::{
     device::Queue,
     pipeline::{
         graphics::{
-            depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
@@ -52,7 +34,6 @@ use vulkano::{
 };
 
 use crate::scene_pkg::directional_light::DirectionalLight;
-use crate::scene_pkg::object3d::Object3D;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -60,22 +41,21 @@ struct Buffers {
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
 }
 
-pub struct LightingPass{
+pub struct LightingPass {
     gfx_queue: Arc<Queue>,
     dir_light: Arc<Mutex<DirectionalLight>>,
     pipeline: Arc<GraphicsPipeline>,
-    subpass: Subpass, 
-    buffers: Buffers
+    subpass: Subpass,
+    buffers: Buffers,
 }
 
-impl LightingPass{
+impl LightingPass {
     /// Initializes a triangle drawing system.
     pub fn new(
         gfx_queue: Arc<Queue>,
         render_pass: Arc<RenderPass>,
-        dir_light: Arc<Mutex<DirectionalLight>>
+        dir_light: Arc<Mutex<DirectionalLight>>,
     ) -> LightingPass {
-
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
         let buffers = LightingPass::create_buffers(gfx_queue.clone());
@@ -87,33 +67,32 @@ impl LightingPass{
             dir_light,
             pipeline,
             subpass,
-            buffers
+            buffers,
         }
     }
 
-
     pub fn draw(
-        &mut self, 
-        viewport_dimensions: [u32; 2], 
-        world: Matrix4<f32>, 
+        &mut self,
+        viewport_dimensions: [u32; 2],
+        world: Matrix4<f32>,
         view: Matrix4<f32>,
         shadow_image: Arc<dyn ImageViewAbstract + 'static>,
         position_image: Arc<dyn ImageViewAbstract + 'static>,
         color_image: Arc<dyn ImageViewAbstract + 'static>,
-        normals_image: Arc<dyn ImageViewAbstract + 'static>
-    ) -> SecondaryAutoCommandBuffer {   
-        let (light_view, light_projection) = self.dir_light.lock().unwrap().clone().view_projection();
+        normals_image: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> SecondaryAutoCommandBuffer {
+        let (light_view, light_projection) =
+            self.dir_light.lock().unwrap().clone().view_projection();
 
-        
         let push_constants_fs;
         {
             let dir_light_locked = self.dir_light.lock().unwrap();
             push_constants_fs = fs::ty::PushConstants {
                 color: dir_light_locked.color,
                 direction: dir_light_locked.clone().direction().extend(0.0).into(),
-                light_proj_view_model: (light_projection * light_view ).into(),
+                light_proj_view_model: (light_projection * light_view).into(),
                 world: world.into(),
-                view: view.into()
+                view: view.into(),
             };
         }
 
@@ -121,15 +100,17 @@ impl LightingPass{
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
             [
-                LightingPass::create_shadow_image_set(self.gfx_queue.clone(), 0, shadow_image.clone()),
+                LightingPass::create_shadow_image_set(
+                    self.gfx_queue.clone(),
+                    0,
+                    shadow_image.clone(),
+                ),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 1, position_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 2, color_image.clone()),
-                LightingPass::create_image_set(self.gfx_queue.clone(), 3, normals_image.clone())
-                
+                LightingPass::create_image_set(self.gfx_queue.clone(), 3, normals_image.clone()),
             ],
         )
         .unwrap();
-
 
         let viewport = Viewport {
             origin: [0.0, 0.0],
@@ -156,7 +137,6 @@ impl LightingPass{
                 0,
                 descriptor_set,
             )
-            
             .push_constants(self.pipeline.layout().clone(), 0, push_constants_fs)
             .bind_vertex_buffers(0, self.buffers.vertex_buffer.clone())
             .draw(self.buffers.vertex_buffer.len() as u32, 1, 0, 0)
@@ -166,7 +146,11 @@ impl LightingPass{
 
     // private methods
 
-    fn create_image_set(gfx_queue: Arc<Queue>, binding_index: u32, image_view: Arc<dyn ImageViewAbstract + 'static>,) -> WriteDescriptorSet {
+    fn create_image_set(
+        gfx_queue: Arc<Queue>,
+        binding_index: u32,
+        image_view: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> WriteDescriptorSet {
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
             SamplerCreateInfo {
@@ -181,7 +165,11 @@ impl LightingPass{
         WriteDescriptorSet::image_view_sampler(binding_index, image_view, sampler)
     }
 
-    fn create_shadow_image_set(gfx_queue: Arc<Queue>, binding_index: u32, image_view: Arc<dyn ImageViewAbstract + 'static>,) -> WriteDescriptorSet {
+    fn create_shadow_image_set(
+        gfx_queue: Arc<Queue>,
+        binding_index: u32,
+        image_view: Arc<dyn ImageViewAbstract + 'static>,
+    ) -> WriteDescriptorSet {
         let sampler = Sampler::new(
             gfx_queue.device().clone(),
             SamplerCreateInfo {
@@ -247,8 +235,7 @@ impl LightingPass{
             .expect("failed to create buffer")
         };
 
-        Buffers{vertex_buffer}
-
+        Buffers { vertex_buffer }
     }
 }
 
@@ -305,7 +292,9 @@ layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
 
 float shadow_calculation(float light_percent) {
-    vec4 in_position = texture(u_position, v_frag_pos * 0.5 + 0.5);
+    vec2 coord = v_frag_pos * 0.5 + 0.5;
+
+    vec4 in_position = texture(u_position, coord);
 
     vec4 position_to_light = push_constants.light_proj_view_model * push_constants.world * in_position;
     position_to_light.xy  = position_to_light.xy * 0.5 + 0.5;
@@ -335,10 +324,11 @@ float shadow_calculation(float light_percent) {
 
 
 void main() {
-    vec4 in_position = texture(u_position, v_frag_pos * 0.5 + 0.5);
-    vec3 in_diffuse = texture(u_diffuse, v_frag_pos * 0.5 + 0.5).rgb;
-    vec3 in_normal = normalize(texture(u_normals, v_frag_pos * 0.5 + 0.5).rgb);
-    vec4 in_shadow_map = texture(shadow_map, v_frag_pos * 0.5 + 0.5);
+    vec2 coord = v_frag_pos * 0.5 + 0.5;
+    vec4 in_position = texture(u_position, coord);
+    vec3 in_diffuse = texture(u_diffuse, coord).rgb;
+    vec3 in_normal = normalize(texture(u_normals, coord).rgb);
+    vec4 in_shadow_map = texture(shadow_map, coord);
 
 
     vec4 light_to_world = normalize(inverse(push_constants.view) * push_constants.direction);

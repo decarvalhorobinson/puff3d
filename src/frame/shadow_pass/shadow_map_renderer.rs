@@ -1,16 +1,25 @@
 use std::sync::{Arc, Mutex};
-use vulkano::{sync::{self, GpuFuture}, image::{AttachmentImage, ImageUsage}, format::Format};
+use vulkano::{
+    format::Format,
+    image::{AttachmentImage, ImageUsage},
+    sync::GpuFuture,
+};
 
-use cgmath::{Matrix4, SquareMatrix};
-use image::{ImageBuffer, Rgba};
-use vulkano::{device::Queue, render_pass::{Subpass, RenderPass, Framebuffer, FramebufferCreateInfo}, command_buffer::{PrimaryAutoCommandBuffer, AutoCommandBufferBuilder, CommandBufferUsage, RenderPassBeginInfo, SubpassContents, SecondaryCommandBuffer, CopyImageToBufferInfo}, image::{ImageViewAbstract, StorageImage, view::ImageView}, buffer::{CpuAccessibleBuffer, BufferUsage}};
+use vulkano::{
+    command_buffer::{
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryAutoCommandBuffer,
+        RenderPassBeginInfo, SecondaryCommandBuffer, SubpassContents,
+    },
+    device::Queue,
+    image::{view::ImageView, ImageViewAbstract},
+    render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass},
+};
 
 use crate::scene_pkg::scene::Scene;
 
 use super::object_3d_shadow_pass::Object3DShadowPass;
 
 pub struct ShadowMapRenderer {
-
     pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
@@ -19,60 +28,62 @@ pub struct ShadowMapRenderer {
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
 
-    pub shadow_image: Arc<dyn ImageViewAbstract + 'static>
-
+    pub shadow_image: Arc<dyn ImageViewAbstract + 'static>,
 }
 
 impl ShadowMapRenderer {
-
     pub fn new(queue: Arc<Queue>, scene: Arc<Mutex<Scene>>) -> ShadowMapRenderer {
         let render_pass = vulkano::single_pass_renderpass!(queue.device().clone(),
-                attachments: {
-                    depth: {
-                        load: Clear,
-                        store: Store,
-                        format: Format::D16_UNORM,
-                        samples: 1,
-                    }
-                },
-                pass: {
-                    color: [],
-                    depth_stencil: {depth}
+            attachments: {
+                depth: {
+                    load: Clear,
+                    store: Store,
+                    format: Format::D16_UNORM,
+                    samples: 1,
                 }
-            ).unwrap();
-
-        let shadow_image = ImageView::new_default(AttachmentImage::with_usage(
-            queue.device().clone(),
-            [2048, 2048],
-            Format::D16_UNORM,
-            ImageUsage {
-                transient_attachment: false,
-                input_attachment: false,
-                sampled: true,
-                ..ImageUsage::none()
             },
+            pass: {
+                color: [],
+                depth_stencil: {depth}
+            }
         )
-        .unwrap()).unwrap();
+        .unwrap();
+
+        let shadow_image = ImageView::new_default(
+            AttachmentImage::with_usage(
+                queue.device().clone(),
+                [2048, 2048],
+                Format::D16_UNORM,
+                ImageUsage {
+                    transient_attachment: false,
+                    input_attachment: false,
+                    sampled: true,
+                    ..ImageUsage::none()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         let scene_locked = scene.lock().unwrap();
         let mut object_3d_passes: Vec<Object3DShadowPass> = vec![];
         object_3d_passes.reserve(scene_locked.objects.len());
-        for object_3d in scene_locked.objects.clone()  {
+        for object_3d in scene_locked.objects.clone() {
             object_3d_passes.push(Object3DShadowPass::new(
                 queue.clone(),
                 render_pass.clone(),
-                object_3d
+                object_3d,
             ));
         }
 
-        ShadowMapRenderer { 
+        ShadowMapRenderer {
             scene: scene.clone(),
             gfx_queue: queue.clone(),
             render_pass: render_pass,
             object_3d_passes: object_3d_passes,
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
-            shadow_image: shadow_image
+            shadow_image: shadow_image,
         }
     }
 
@@ -83,23 +94,25 @@ impl ShadowMapRenderer {
         {
             let scene_locked = self.scene.lock().unwrap();
             world = scene_locked.world_model;
-            (view, projection) = scene_locked.directional_lights[0].lock().unwrap().clone().view_projection();
+            (view, projection) = scene_locked.directional_lights[0]
+                .lock()
+                .unwrap()
+                .clone()
+                .view_projection();
         }
 
         for i in 0..self.object_3d_passes.len() {
-
-            let cb = self.object_3d_passes[i].draw(self.framebuffer.clone().unwrap().extent(), world,  projection, view);
+            let cb = self.object_3d_passes[i].draw(
+                self.framebuffer.clone().unwrap().extent(),
+                world,
+                projection,
+                view,
+            );
             self.execute_draw_pass(cb);
         }
-
-
     }
 
-
-    pub fn begin_render_pass(
-        &mut self
-    )
-    {
+    pub fn begin_render_pass(&mut self) {
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
@@ -124,8 +137,7 @@ impl ShadowMapRenderer {
             )
             .unwrap();
         self.framebuffer = Some(framebuffer);
-        self.command_buffer_builder= Some(command_buffer_builder);
-
+        self.command_buffer_builder = Some(command_buffer_builder);
     }
 
     pub fn execute_draw_pass<C>(&mut self, command_buffer: C)
@@ -139,8 +151,10 @@ impl ShadowMapRenderer {
             .unwrap();
     }
 
-    pub fn end_render_pass<F: GpuFuture + 'static>(&mut self, future: F) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer>  {
-
+    pub fn end_render_pass<F: GpuFuture + 'static>(
+        &mut self,
+        future: F,
+    ) -> vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer> {
         self.command_buffer_builder
             .as_mut()
             .unwrap()
@@ -148,15 +162,8 @@ impl ShadowMapRenderer {
             .unwrap();
         let command_buffer = self.command_buffer_builder.take().unwrap().build().unwrap();
 
-        future.then_execute(self.gfx_queue.clone(), command_buffer).unwrap()
-
-
-
+        future
+            .then_execute(self.gfx_queue.clone(), command_buffer)
+            .unwrap()
     }
-    
-    #[inline]
-    pub fn viewport_dimensions(&self) -> [u32; 2] {
-        self.framebuffer.clone().unwrap().extent()
-    }
-    
 }
