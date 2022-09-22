@@ -7,7 +7,7 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use std::sync::Mutex;
+use std::sync::{Mutex, Arc};
 
 use cgmath::{Vector3, Matrix4, SquareMatrix, Point3};
 
@@ -26,11 +26,11 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
         objects: vec![],
         world_model: Matrix4::identity(),
         directional_lights: vec![
-            DirectionalLight {
+            Arc::new(Mutex::new(DirectionalLight {
                 position: Point3::new(-40.0, 30.0, -40.0),
                 center: Point3::new(0.0, 0.0, 0.0), 
-                color: [1.0, 1.0, 1.0],
-            }
+                color: [1.0, 1.0, 1.0, 1.0],
+            }))
         ]
 
     };
@@ -63,11 +63,11 @@ pub fn get_example_scene_brick_wall() -> Scene {
         objects: vec![],
         world_model: Matrix4::identity(),
         directional_lights: vec![
-            DirectionalLight {
-                position: Point3::new(5.0, 5.0, -2.0),
-                center: Point3::new(0.0, 0.0, 0.0),  
-                color: [1.0, 1.0, 1.0],
-            }
+            Arc::new(Mutex::new(DirectionalLight {
+                position: Point3::new(-40.0, 30.0, -40.0),
+                center: Point3::new(0.0, 0.0, 0.0), 
+                color: [1.0, 1.0, 1.0, 1.0],
+            }))
         ]
 
     };

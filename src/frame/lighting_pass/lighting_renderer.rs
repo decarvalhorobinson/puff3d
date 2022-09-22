@@ -7,88 +7,96 @@ use vulkano::{device::Queue, render_pass::{Subpass, RenderPass, Framebuffer, Fra
 
 use crate::scene_pkg::scene::Scene;
 
-use super::object_3d_shadow_pass::Object3DShadowPass;
+use super::lighting_pass::LightingPass;
 
-pub struct ShadowMapRenderer {
+pub struct LightingRenderer {
 
     pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
-    pub object_3d_passes: Vec<Object3DShadowPass>,
+    pub lighting_passes: Vec<LightingPass>,
 
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
-
-    pub shadow_image: Arc<dyn ImageViewAbstract + 'static>
-
+    
 }
 
-impl ShadowMapRenderer {
+impl LightingRenderer {
 
-    pub fn new(queue: Arc<Queue>, scene: Arc<Mutex<Scene>>) -> ShadowMapRenderer {
-        let render_pass = vulkano::single_pass_renderpass!(queue.device().clone(),
-                attachments: {
-                    depth: {
-                        load: Clear,
-                        store: Store,
-                        format: Format::D16_UNORM,
-                        samples: 1,
-                    }
-                },
-                pass: {
-                    color: [],
-                    depth_stencil: {depth}
+    pub fn new(
+        gfx_queue: Arc<Queue>, 
+        scene: Arc<Mutex<Scene>>, 
+        final_output_format: Format
+    ) -> LightingRenderer {
+        let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
+            attachments: {
+                // Will be bound to `self.position_buffer`.
+                final_color: {
+                    load: Clear,
+                    store: Store,
+                    format: final_output_format,
+                    samples: 1,
                 }
-            ).unwrap();
-
-        let shadow_image = ImageView::new_default(AttachmentImage::with_usage(
-            queue.device().clone(),
-            [2048, 2048],
-            Format::D16_UNORM,
-            ImageUsage {
-                transient_attachment: false,
-                input_attachment: false,
-                sampled: true,
-                ..ImageUsage::none()
             },
+            passes: [
+                {
+                    color: [final_color],
+                    depth_stencil: {},
+                    input: []
+                }
+            ]
         )
-        .unwrap()).unwrap();
+        .unwrap();
 
         let scene_locked = scene.lock().unwrap();
-        let mut object_3d_passes: Vec<Object3DShadowPass> = vec![];
-        object_3d_passes.reserve(scene_locked.objects.len());
-        for object_3d in scene_locked.objects.clone()  {
-            object_3d_passes.push(Object3DShadowPass::new(
-                queue.clone(),
+        let mut lighting_passes: Vec<LightingPass> = vec![];
+        lighting_passes.reserve(scene_locked.objects.len());
+        for dir_light in scene_locked.directional_lights.clone()  {
+            lighting_passes.push(LightingPass::new(
+                gfx_queue.clone(),
                 render_pass.clone(),
-                object_3d
+                dir_light
             ));
         }
 
-        ShadowMapRenderer { 
+        
+        LightingRenderer { 
             scene: scene.clone(),
-            gfx_queue: queue.clone(),
+            gfx_queue: gfx_queue.clone(),
             render_pass: render_pass,
-            object_3d_passes: object_3d_passes,
+            lighting_passes: lighting_passes,
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
-            shadow_image: shadow_image
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(
+        &mut self,
+        shadow_image: Arc<dyn ImageViewAbstract + 'static>,
+        position_image: Arc<dyn ImageViewAbstract + 'static>,
+        color_image: Arc<dyn ImageViewAbstract + 'static>,
+        normals_image: Arc<dyn ImageViewAbstract + 'static>
+    ) {
         let view;
-        let projection;
         let world;
         {
             let scene_locked = self.scene.lock().unwrap();
             world = scene_locked.world_model;
-            (view, projection) = scene_locked.directional_lights[0].lock().unwrap().clone().view_projection();
+            view = scene_locked.active_camera.get_view_matrix();
         }
 
-        for i in 0..self.object_3d_passes.len() {
+        for i in 0..self.lighting_passes.len() {
 
-            let cb = self.object_3d_passes[i].draw(self.framebuffer.clone().unwrap().extent(), world,  projection, view);
+            let cb = self.lighting_passes[i].draw(
+                self.framebuffer.clone().unwrap().extent(), 
+                world,  
+                view,
+                shadow_image.clone(),
+                position_image.clone(),
+                color_image.clone(),
+                normals_image.clone()
+
+            );
             self.execute_draw_pass(cb);
         }
 
@@ -97,17 +105,22 @@ impl ShadowMapRenderer {
 
 
     pub fn begin_render_pass(
-        &mut self
+        &mut self,
+        final_image: Arc<dyn ImageViewAbstract + 'static>
     )
     {
+
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![self.shadow_image.clone()],
+                attachments: vec![
+                    final_image.clone()
+                ],
                 ..Default::default()
             },
         )
         .unwrap();
+
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.family(),
@@ -117,7 +130,12 @@ impl ShadowMapRenderer {
         command_buffer_builder
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![Some(1.0f32.into())],
+                    clear_values: vec![
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some(1.0f32.into()),
+                    ],
                     ..RenderPassBeginInfo::framebuffer(framebuffer.clone())
                 },
                 SubpassContents::SecondaryCommandBuffers,
@@ -152,11 +170,6 @@ impl ShadowMapRenderer {
 
 
 
-    }
-    
-    #[inline]
-    pub fn viewport_dimensions(&self) -> [u32; 2] {
-        self.framebuffer.clone().unwrap().extent()
     }
     
 }

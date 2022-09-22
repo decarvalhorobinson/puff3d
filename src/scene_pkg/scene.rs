@@ -1,3 +1,5 @@
+use std::sync::{Mutex, Arc};
+
 use cgmath::{Matrix4, Rad, Vector3};
 
 use super::{camera::Camera, object3d::Object3D, directional_light::DirectionalLight};
@@ -9,7 +11,7 @@ pub struct Scene {
     pub active_camera: Camera,
     pub objects: Vec<Object3D>,
     pub world_model: Matrix4<f32>,
-    pub directional_lights: Vec<DirectionalLight>
+    pub directional_lights: Vec<Arc<Mutex<DirectionalLight>>>
 }
 
 impl Scene {

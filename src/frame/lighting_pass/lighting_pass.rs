@@ -7,158 +7,124 @@
 // notice may not be copied, modified, or distributed except
 // according to those terms.
 
-use bytemuck::{Pod, Zeroable};
-use cgmath::SquareMatrix;
-use cgmath::{Vector3, Matrix4};
-use vulkano::image::AttachmentImage;
+use bytemuck::{Zeroable, Pod};
+use cgmath::{Matrix3, Rad, Matrix4, Point3, Vector3};
+use vulkano::format::Format;
+use vulkano::image::ImageDimensions;
+use vulkano::image::ImageViewAbstract;
+use vulkano::image::ImmutableImage;
+use vulkano::image::MipmapsCount;
+use vulkano::image::view::ImageView;
+use vulkano::impl_vertex;
+use vulkano::pipeline::graphics::color_blend::AttachmentBlend;
+use vulkano::pipeline::graphics::color_blend::BlendFactor;
+use vulkano::pipeline::graphics::color_blend::BlendOp;
+use vulkano::pipeline::graphics::color_blend::ColorBlendState;
+use vulkano::render_pass::RenderPass;
 use vulkano::sampler::BorderColor;
+use vulkano::sampler::Filter;
+use vulkano::sampler::Sampler;
+use vulkano::sampler::SamplerAddressMode;
+use vulkano::sampler::SamplerCreateInfo;
 use std::io::Read;
 use std::io::BufReader;
 use std::fs::File;
+use std::sync::Mutex;
 use std::{sync::Arc, io::Cursor};
 use vulkano::{
-    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess},
+    buffer::{BufferUsage, CpuAccessibleBuffer, TypedBufferAccess, CpuBufferPool},
     command_buffer::{
         AutoCommandBufferBuilder, CommandBufferInheritanceInfo, CommandBufferUsage,
         SecondaryAutoCommandBuffer,
     },
     descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
     device::Queue,
-    image::{ImageViewAbstract, StorageImage, view::{ImageView, ImageViewCreateInfo, ImageViewType}, ImageDimensions, ImmutableImage, MipmapsCount},
-    impl_vertex,
     pipeline::{
         graphics::{
-            color_blend::{AttachmentBlend, BlendFactor, BlendOp, ColorBlendState},
+            depth_stencil::DepthStencilState,
             input_assembly::InputAssemblyState,
             vertex_input::BuffersDefinition,
             viewport::{Viewport, ViewportState},
         },
         GraphicsPipeline, Pipeline, PipelineBindPoint,
     },
-    render_pass::Subpass, sampler::{Sampler, SamplerCreateInfo, Filter, SamplerAddressMode}, format::Format,
+    render_pass::Subpass,
 };
 
-use crate::scene_pkg::scene::Scene;
+use crate::scene_pkg::directional_light::DirectionalLight;
+use crate::scene_pkg::object3d::Object3D;
 
-/// Allows applying a directional light source to a scene.
-pub struct DirectionalLightingSystem {
-    gfx_queue: Arc<Queue>,
+#[repr(C)]
+#[derive(Clone)]
+struct Buffers {
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
-    subpass: Subpass,
-    pipeline: Arc<GraphicsPipeline>,
 }
 
-impl DirectionalLightingSystem {
-    /// Initializes the directional lighting system.
-    pub fn new(gfx_queue: Arc<Queue>, subpass: Subpass) -> DirectionalLightingSystem {
-        // TODO: vulkano doesn't allow us to draw without a vertex buffer, otherwise we could
-        //       hard-code these values in the shader
-        let vertices = [
-            Vertex {
-                position: [-1.0, -1.0],
-            },
-            Vertex {
-                position: [-1.0, 3.0],
-            },
-            Vertex {
-                position: [3.0, -1.0],
-            },
-        ];
-        let vertex_buffer = {
-            CpuAccessibleBuffer::from_iter(
-                gfx_queue.device().clone(),
-                BufferUsage {
-                    vertex_buffer: true,
-                    ..BufferUsage::none()
-                },
-                false,
-                vertices,
-            )
-            .expect("failed to create buffer")
-        };
+pub struct LightingPass{
+    gfx_queue: Arc<Queue>,
+    dir_light: Arc<Mutex<DirectionalLight>>,
+    pipeline: Arc<GraphicsPipeline>,
+    subpass: Subpass, 
+    buffers: Buffers
+}
 
-        let pipeline = {
-            let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
-            let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+impl LightingPass{
+    /// Initializes a triangle drawing system.
+    pub fn new(
+        gfx_queue: Arc<Queue>,
+        render_pass: Arc<RenderPass>,
+        dir_light: Arc<Mutex<DirectionalLight>>
+    ) -> LightingPass {
 
-            GraphicsPipeline::start()
-                .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
-                .vertex_shader(vs.entry_point("main").unwrap(), ())
-                .input_assembly_state(InputAssemblyState::new())
-                .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
-                .fragment_shader(fs.entry_point("main").unwrap(), ())
-                .color_blend_state(ColorBlendState::new(subpass.num_color_attachments()).blend(
-                    AttachmentBlend {
-                        color_op: BlendOp::Add,
-                        color_source: BlendFactor::One,
-                        color_destination: BlendFactor::One,
-                        alpha_op: BlendOp::Max,
-                        alpha_source: BlendFactor::One,
-                        alpha_destination: BlendFactor::One,
-                    },
-                ))
-                .render_pass(subpass.clone())
-                .build(gfx_queue.device().clone())
-                .unwrap()
-        };
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
-        DirectionalLightingSystem {
+        let buffers = LightingPass::create_buffers(gfx_queue.clone());
+
+        let pipeline = LightingPass::create_pipeline(gfx_queue.clone(), subpass.clone());
+
+        LightingPass {
             gfx_queue,
-            vertex_buffer,
-            subpass,
+            dir_light,
             pipeline,
+            subpass,
+            buffers
         }
     }
 
-    /// Builds a secondary command buffer that applies directional lighting.
-    ///
-    /// This secondary command buffer will read `color_input` and `normals_input`, and multiply the
-    /// color with `color` and the dot product of the `direction` with the normal.
-    /// It then writes the output to the current framebuffer with additive blending (in other words
-    /// the value will be added to the existing value in the framebuffer, and not replace the
-    /// existing value).
-    ///
-    /// Since `normals_input` contains normals in world coordinates, `direction` should also be in
-    /// world coordinates.
-    ///
-    /// - `viewport_dimensions` contains the dimensions of the current framebuffer.
-    /// - `color_input` is an image containing the albedo of each object of the scene. It is the
-    ///   result of the deferred pass.
-    /// - `normals_input` is an image containing the normals of each object of the scene. It is the
-    ///   result of the deferred pass.
-    /// - `direction` is the direction of the light in world coordinates.
-    /// - `color` is the color to apply.
-    ///
+
     pub fn draw(
-        &self,
-        viewport_dimensions: [u32; 2],
-        position_input: Arc<dyn ImageViewAbstract + 'static>,
-        color_input: Arc<dyn ImageViewAbstract + 'static>,
-        normals_input: Arc<dyn ImageViewAbstract + 'static>,
-        direction: Vector3<f32>,
-        light_view: Matrix4<f32>,
-        light_projection: Matrix4<f32>,
-        world: Matrix4<f32>,
-        world_view_model: Matrix4<f32>,
-        color: [f32; 3],
-        shadow_image: Arc<AttachmentImage>,
-    ) -> SecondaryAutoCommandBuffer {
-        let push_constants_fs = fs::ty::PushConstants {
-            color: [color[0], color[1], color[2], 1.0],
-            direction: direction.extend(0.0).into(),
-            light_proj_view_model: (light_projection * light_view ).into(),
-            world: world.into(),
-            world_view_model: (world_view_model).into()
-        };
+        &mut self, 
+        viewport_dimensions: [u32; 2], 
+        world: Matrix4<f32>, 
+        view: Matrix4<f32>,
+        shadow_image: Arc<dyn ImageViewAbstract + 'static>,
+        position_image: Arc<dyn ImageViewAbstract + 'static>,
+        color_image: Arc<dyn ImageViewAbstract + 'static>,
+        normals_image: Arc<dyn ImageViewAbstract + 'static>
+    ) -> SecondaryAutoCommandBuffer {   
+        let (light_view, light_projection) = self.dir_light.lock().unwrap().clone().view_projection();
+
+        
+        let push_constants_fs;
+        {
+            let dir_light_locked = self.dir_light.lock().unwrap();
+            push_constants_fs = fs::ty::PushConstants {
+                color: dir_light_locked.color,
+                direction: dir_light_locked.clone().direction().extend(0.0).into(),
+                light_proj_view_model: (light_projection * light_view ).into(),
+                world: world.into(),
+                view: view.into()
+            };
+        }
 
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
             [
-                DirectionalLightingSystem::create_shadow_image_set(self.gfx_queue.clone(), 0, ImageView::new_default(shadow_image.clone()).unwrap()),
-                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 1, position_input.clone()),
-                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 2, color_input.clone()),
-                DirectionalLightingSystem::create_image_set(self.gfx_queue.clone(), 3, normals_input.clone())
+                LightingPass::create_shadow_image_set(self.gfx_queue.clone(), 0, shadow_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 1, position_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 2, color_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 3, normals_image.clone())
                 
             ],
         )
@@ -192,11 +158,13 @@ impl DirectionalLightingSystem {
             )
             
             .push_constants(self.pipeline.layout().clone(), 0, push_constants_fs)
-            .bind_vertex_buffers(0, self.vertex_buffer.clone())
-            .draw(self.vertex_buffer.len() as u32, 1, 0, 0)
+            .bind_vertex_buffers(0, self.buffers.vertex_buffer.clone())
+            .draw(self.buffers.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
         builder.build().unwrap()
     }
+
+    // private methods
 
     fn create_image_set(gfx_queue: Arc<Queue>, binding_index: u32, image_view: Arc<dyn ImageViewAbstract + 'static>,) -> WriteDescriptorSet {
         let sampler = Sampler::new(
@@ -227,6 +195,60 @@ impl DirectionalLightingSystem {
         .unwrap();
 
         WriteDescriptorSet::image_view_sampler(binding_index, image_view, sampler)
+    }
+
+    fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
+        let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+        let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
+
+        GraphicsPipeline::start()
+            .vertex_input_state(BuffersDefinition::new().vertex::<Vertex>())
+            .vertex_shader(vs.entry_point("main").unwrap(), ())
+            .input_assembly_state(InputAssemblyState::new())
+            .viewport_state(ViewportState::viewport_dynamic_scissor_irrelevant())
+            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .color_blend_state(ColorBlendState::new(subpass.num_color_attachments()).blend(
+                AttachmentBlend {
+                    color_op: BlendOp::Add,
+                    color_source: BlendFactor::One,
+                    color_destination: BlendFactor::One,
+                    alpha_op: BlendOp::Max,
+                    alpha_source: BlendFactor::One,
+                    alpha_destination: BlendFactor::One,
+                },
+            ))
+            .render_pass(subpass.clone())
+            .build(gfx_queue.device().clone())
+            .unwrap()
+    }
+
+    fn create_buffers(gfx_queue: Arc<Queue>) -> Buffers {
+        let vertices = [
+            Vertex {
+                position: [-1.0, -1.0],
+            },
+            Vertex {
+                position: [-1.0, 3.0],
+            },
+            Vertex {
+                position: [3.0, -1.0],
+            },
+        ];
+        let vertex_buffer = {
+            CpuAccessibleBuffer::from_iter(
+                gfx_queue.device().clone(),
+                BufferUsage {
+                    vertex_buffer: true,
+                    ..BufferUsage::none()
+                },
+                false,
+                vertices,
+            )
+            .expect("failed to create buffer")
+        };
+
+        Buffers{vertex_buffer}
+
     }
 }
 
@@ -276,12 +298,8 @@ layout(push_constant) uniform PushConstants {
     vec4 direction;
     mat4 light_proj_view_model;
     mat4 world;
-    mat4 world_view_model;
+    mat4 view;
 } push_constants;
-
-
-
-
 
 layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
@@ -323,7 +341,7 @@ void main() {
     vec4 in_shadow_map = texture(shadow_map, v_frag_pos * 0.5 + 0.5);
 
 
-    vec4 light_to_world = normalize(inverse(push_constants.world_view_model) * push_constants.direction);
+    vec4 light_to_world = normalize(inverse(push_constants.view) * push_constants.direction);
     float light_percent = -dot(light_to_world.xyz, in_normal);
     light_percent = max(light_percent, 0.3);
 

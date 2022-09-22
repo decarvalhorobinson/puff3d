@@ -19,10 +19,10 @@ pub struct DeferredMapRenderer {
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
 
-    pub position_buffer: Arc<ImageView<AttachmentImage>>,
-    pub albedo_specular_buffer: Arc<ImageView<AttachmentImage>>,
-    pub normals_buffer: Arc<ImageView<AttachmentImage>>,
-    depth_buffer: Arc<ImageView<AttachmentImage>>,
+    pub position_image: Arc<ImageView<AttachmentImage>>,
+    pub albedo_specular_image: Arc<ImageView<AttachmentImage>>,
+    pub normals_image: Arc<ImageView<AttachmentImage>>,
+    depth_image: Arc<ImageView<AttachmentImage>>,
     
 }
 
@@ -31,28 +31,28 @@ impl DeferredMapRenderer {
     pub fn new(gfx_queue: Arc<Queue>, scene: Arc<Mutex<Scene>>) -> DeferredMapRenderer {
         let render_pass = vulkano::ordered_passes_renderpass!(gfx_queue.device().clone(),
             attachments: {
-                // Will be bound to `self.position_buffer`.
+                // Will be bound to `self.position_image`.
                 position: {
                     load: Clear,
                     store: Store,
                     format: Format::R16G16B16A16_SFLOAT,
                     samples: 1,
                 },
-                // Will be bound to `self.albedo_specular_buffer`.
+                // Will be bound to `self.albedo_specular_image`.
                 albedo_specular: {
                     load: Clear,
                     store: Store,
                     format: Format::R16G16B16A16_SFLOAT,
                     samples: 1,
                 },
-                // Will be bound to `self.normals_buffer`.
+                // Will be bound to `self.normals_image`.
                 normals: {
                     load: Clear,
                     store: Store,
                     format: Format::R16G16B16A16_SNORM,
                     samples: 1,
                 },
-                // Will be bound to `self.depth_buffer`.
+                // Will be bound to `self.depth_image`.
                 depth: {
                     load: Clear,
                     store: DontCare,
@@ -71,7 +71,7 @@ impl DeferredMapRenderer {
         )
         .unwrap();
 
-        let position_buffer = ImageView::new_default(
+        let position_image = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
@@ -87,7 +87,7 @@ impl DeferredMapRenderer {
         )
         .unwrap();
 
-        let albedo_specular_buffer = ImageView::new_default(
+        let albedo_specular_image = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
@@ -102,7 +102,7 @@ impl DeferredMapRenderer {
             .unwrap(),
         )
         .unwrap();
-        let normals_buffer = ImageView::new_default(
+        let normals_image = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
@@ -117,7 +117,7 @@ impl DeferredMapRenderer {
             .unwrap(),
         )
         .unwrap();
-        let depth_buffer = ImageView::new_default(
+        let depth_image = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
@@ -151,10 +151,10 @@ impl DeferredMapRenderer {
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
 
-            position_buffer: position_buffer,
-            albedo_specular_buffer: albedo_specular_buffer,
-            normals_buffer: normals_buffer,
-            depth_buffer: depth_buffer
+            position_image: position_image,
+            albedo_specular_image: albedo_specular_image,
+            normals_image: normals_image,
+            depth_image: depth_image
             
 
         }
@@ -187,7 +187,7 @@ impl DeferredMapRenderer {
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
-                attachments: vec![self.position_buffer.clone(), self.albedo_specular_buffer.clone(), self.normals_buffer.clone(), self.depth_buffer.clone()],
+                attachments: vec![self.position_image.clone(), self.albedo_specular_image.clone(), self.normals_image.clone(), self.depth_image.clone()],
                 ..Default::default()
             },
         )

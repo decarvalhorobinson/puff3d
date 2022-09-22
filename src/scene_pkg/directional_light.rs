@@ -5,7 +5,7 @@ use cgmath::{Matrix4, Vector3, Point3, EuclideanSpace};
 pub struct DirectionalLight {
     pub position: Point3<f32>,
     pub center: Point3<f32>,
-    pub color: [f32; 3],
+    pub color: [f32; 4],
 }
 
 

@@ -18,9 +18,8 @@ use winit::{
 };
 
 use crate::frame::shadow_pass::shadow_map_renderer::ShadowMapRenderer;
+use crate::frame::lighting_pass::lighting_renderer::*;
 use crate::frame::deferred_pass::deferred_map_renderer::DeferredMapRenderer;
-use crate::frame::{Pass};
-use crate::frame::FrameSystem;
 use super::mesh_example;
 
 
@@ -155,11 +154,9 @@ pub fn vulkan_init() {
     //create scene, should be unique for everything
     let scene = mesh_example::get_example_scene_cottage_house();
 
-
-   // Here is the basic initialization for the deferred system.
-   let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
-
     let mut shadow_map_renderer = ShadowMapRenderer::new(queue.clone(), scene.clone());
+
+    let mut lighting_renderer = LightingRenderer::new(queue.clone(), scene.clone(), swapchain.image_format());
 
     let mut deferred_map_renderer = DeferredMapRenderer::new(queue.clone(), scene.clone());
     
@@ -228,7 +225,7 @@ pub fn vulkan_init() {
                 let mut scene_locked = scene.lock().unwrap();
                 scene_locked.rotate(rotation);
                 let light_rot = Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(rotation_light as f32)) * Point3::new(40.0, 50.0, -20.0).to_homogeneous();
-                scene_locked.directional_lights[0].position = Point3::new(light_rot.x, light_rot.y, light_rot.z);
+                scene_locked.directional_lights[0].lock().unwrap().position = Point3::new(light_rot.x, light_rot.y, light_rot.z);
 
             }
 
@@ -236,39 +233,22 @@ pub fn vulkan_init() {
 
             shadow_map_renderer.begin_render_pass();
             shadow_map_renderer.draw();
-            let mut shadow_future = Some(shadow_map_renderer.end_render_pass(future));
+            let shadow_future = Some(shadow_map_renderer.end_render_pass(future));
 
             deferred_map_renderer.begin_render_pass();
             deferred_map_renderer.draw();
-            let mut deferred_future = deferred_map_renderer.end_render_pass(shadow_future.unwrap());
+            let deferred_future = deferred_map_renderer.end_render_pass(shadow_future.unwrap());
 
+            lighting_renderer.begin_render_pass(images[image_num].clone());
+            lighting_renderer.draw(
+                shadow_map_renderer.shadow_image.clone(), 
+                deferred_map_renderer.position_image.clone(),
+                deferred_map_renderer.albedo_specular_image.clone(),
+                deferred_map_renderer.normals_image.clone()
+            );
+            let lighting_future = lighting_renderer.end_render_pass(deferred_future);
 
-            let mut after_future2 = None;
-            let mut frame = frame_system.frame(deferred_future, images[image_num].clone(), Matrix4::identity(), shadow_map_renderer.final_image.clone());
-            while let Some(pass) = frame.next_pass() {
-                match pass {
-                    Pass::Lighting(mut lighting) => {
-                        let scene_locked = scene.lock().unwrap();
-                        let (light_view, light_projection) = scene_locked.directional_lights[0].clone().view_projection();
-                        lighting.directional_light(
-                            scene_locked.directional_lights[0].clone().direction(),
-                             [1.0, 1.0, 1.0], 
-                             light_view, 
-                             light_projection, 
-                             scene_locked.world_model,
-                             scene_locked.active_camera.get_view_matrix(),
-                             deferred_map_renderer.position_buffer.clone(),
-                             deferred_map_renderer.albedo_specular_buffer.clone(),
-                             deferred_map_renderer.normals_buffer.clone());
-                    }
-                    Pass::Finished(af) => {
-                        after_future2 = Some(af);
-                    }
-                }
-            }
-
-            let future = after_future2
-                .unwrap()
+            let future = lighting_future
                 .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                 .then_signal_fence_and_flush();
 
