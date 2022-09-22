@@ -21,9 +21,6 @@ use crate::frame::shadow_pass::shadow_map_renderer::ShadowMapRenderer;
 use crate::frame::deferred_pass::deferred_map_renderer::DeferredMapRenderer;
 use crate::frame::{Pass};
 use crate::frame::FrameSystem;
-use crate::system::draw_system::DrawSystem;
-use crate::system::scene_draw_system::SceneDrawSystem;
-
 use super::mesh_example;
 
 
@@ -161,11 +158,6 @@ pub fn vulkan_init() {
 
    // Here is the basic initialization for the deferred system.
    let mut frame_system = FrameSystem::new(queue.clone(), swapchain.image_format());
-   let draw_system = DrawSystem {
-       gfx_queue: queue.clone(),
-       render_pass: frame_system.render_pass.clone()
-   };
-   let mut scene_draw_system = SceneDrawSystem::new(scene.clone(), Arc::new(draw_system));
 
     let mut shadow_map_renderer = ShadowMapRenderer::new(queue.clone(), scene.clone());
 
@@ -255,9 +247,6 @@ pub fn vulkan_init() {
             let mut frame = frame_system.frame(deferred_future, images[image_num].clone(), Matrix4::identity(), shadow_map_renderer.final_image.clone());
             while let Some(pass) = frame.next_pass() {
                 match pass {
-                    Pass::Deferred(draw_pass) => {
-                        scene_draw_system.draw_deferred(draw_pass);
-                    }
                     Pass::Lighting(mut lighting) => {
                         let scene_locked = scene.lock().unwrap();
                         let (light_view, light_projection) = scene_locked.directional_lights[0].clone().view_projection();

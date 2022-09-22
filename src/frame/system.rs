@@ -185,18 +185,6 @@ impl FrameSystem {
         }
     }
 
-    /// Returns the subpass of the render pass where the rendering should write info to gbuffers.
-    ///
-    /// Has two outputs: the diffuse color (3 components) and the normals in world coordinates
-    /// (3 components). Also has a depth attachment.
-    ///
-    /// This method is necessary in order to initialize the pipelines that will draw the objects
-    /// of the scene.
-    #[inline]
-    pub fn deferred_subpass(&self) -> Subpass {
-        Subpass::from(self.render_pass.clone(), 0).unwrap()
-    }
-
     /// Starts drawing a new frame.
     ///
     /// - `before_future` is the future after which the main rendering should be executed.
@@ -337,25 +325,11 @@ impl FrameSystem {
 ///
 /// This struct mutably borrows the `FrameSystem`.
 pub struct Frame<'a> {
-    // The `FrameSystem`.
     system: &'a mut FrameSystem,
-
-    // The active pass we are in. This keeps track of the step we are in.
-    // - If `num_pass` is 0, then we haven't start anything yet.
-    // - If `num_pass` is 1, then we have finished drawing all the objects of the scene.
-    // - If `num_pass` is 2, then we have finished applying lighting.
-    // - Otherwise the frame is finished.
-    // In a more complex application you can have dozens of passes, in which case you probably
-    // don't want to document them all here.
     num_pass: u8,
-
-    // Future to wait upon before the main rendering.
     before_main_cb_future: Option<Box<dyn GpuFuture>>,
-    // Framebuffer that was used when starting the render pass.
     framebuffer: Arc<Framebuffer>,
-    // The command buffer builder that will be built during the lifetime of this object.
     command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
-    // Matrix that was passed to `frame()`.
     world_to_framebuffer: Matrix4<f32>,
     shadow_image: Arc<AttachmentImage>,
 }
@@ -371,10 +345,6 @@ impl<'a> Frame<'a> {
             current_pass
         } {
             0 => {
-                Some(Pass::Deferred(DrawPass { frame: self }))
-            }
-
-            1 => {
                 // If we are in pass 1 then we have finished drawing the objects on the scene.
                 // Going to the next subpass.
                 self.command_buffer_builder
@@ -387,7 +357,7 @@ impl<'a> Frame<'a> {
                 Some(Pass::Lighting(LightingPass { frame: self }))
             }
 
-            2 => {
+            1 => {
                 // If we are in pass 2 then we have finished applying lighting.
                 // We take the builder, call `end_render_pass()`, and then `build()` it to obtain
                 // an actual command buffer.
@@ -418,10 +388,6 @@ impl<'a> Frame<'a> {
 
 /// Struct provided to the user that allows them to customize or handle the pass.
 pub enum Pass<'f, 's: 'f> {
-    /// We are in the pass where we draw objects on the scene. The `DrawPass` allows the user to
-    /// draw the objects.
-    Deferred(DrawPass<'f, 's>),
-
     /// We are in the pass where we add lighting to the scene. The `LightingPass` allows the user
     /// to add light sources.
     Lighting(LightingPass<'f, 's>),
@@ -429,40 +395,6 @@ pub enum Pass<'f, 's: 'f> {
     /// The frame has been fully prepared, and here is the future that will perform the drawing
     /// on the image.
     Finished(Box<dyn GpuFuture>),
-}
-
-/// Allows the user to draw objects on the scene.
-pub struct DrawPass<'f, 's: 'f> {
-    frame: &'f mut Frame<'s>,
-}
-
-impl<'f, 's: 'f> DrawPass<'f, 's> {
-    /// Appends a command that executes a secondary command buffer that performs drawing.
-    #[inline]
-    pub fn execute<C>(&mut self, command_buffer: C)
-    where
-        C: SecondaryCommandBuffer + 'static,
-    {
-        self.frame
-            .command_buffer_builder
-            .as_mut()
-            .unwrap()
-            .execute_commands(command_buffer)
-            .unwrap();
-    }
-
-    /// Returns the dimensions in pixels of the viewport.
-    #[inline]
-    pub fn viewport_dimensions(&self) -> [u32; 2] {
-        self.frame.framebuffer.extent()
-    }
-
-    /// Returns the 4x4 matrix that turns world coordinates into 2D coordinates on the framebuffer.
-    #[allow(dead_code)]
-    #[inline]
-    pub fn world_to_framebuffer_matrix(&self) -> Matrix4<f32> {
-        self.frame.world_to_framebuffer
-    }
 }
 
 /// Allows the user to apply lighting on the scene.

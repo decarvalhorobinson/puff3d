@@ -12,7 +12,7 @@
 // The main code is in the `system` module, while the other modules implement the different kinds
 // of lighting sources.
 
-pub use self::system::{DrawPass, Frame, FrameSystem, LightingPass, Pass};
+pub use self::system::{Frame, FrameSystem, LightingPass, Pass};
 
 mod directional_lighting_system;
 mod system;

@@ -1,6 +1,5 @@
 
 mod config;
-mod system;
 mod frame;
 mod object_3d_loader;
 mod scene_pkg;

@@ -44,9 +44,6 @@ use vulkano::{
 
 use crate::scene_pkg::mesh::{ Normal, Tangent, Uv, Vertex };
 use crate::scene_pkg::object3d::Object3D;
-use crate::system::object_3d_draw_system::Object3DDrawSystem;
-
-use super::deferred_map_renderer::DeferredMapRenderer;
 
 #[repr(C)]
 #[derive(Clone)]
