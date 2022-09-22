@@ -1,6 +1,6 @@
 use std::sync::Arc;
+use std::time::Instant;
 
-use cgmath::{Matrix4, Point3, Rad, Vector3};
 use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
 use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo};
 use vulkano::image::view::ImageView;
@@ -21,9 +21,7 @@ use winit::{
 };
 
 use super::mesh_example;
-use crate::frame::deferred_pass::deferred_map_renderer::DeferredMapRenderer;
-use crate::frame::lighting_pass::lighting_renderer::LightingRenderer;
-use crate::frame::shadow_pass::shadow_map_renderer::ShadowMapRenderer;
+use crate::frame::scene_renderer::SceneRenderer;
 
 fn create_instance() -> Arc<Instance> {
     let required_extensions = vulkano_win::required_extensions();
@@ -141,7 +139,6 @@ pub fn vulkan_init() {
     let instance = create_instance();
 
     // create windows and surface to draw on
-
     let (surface, event_loop) = create_surface(instance.clone());
 
     // create device and queue
@@ -153,17 +150,16 @@ pub fn vulkan_init() {
     //create scene, should be unique for everything
     let scene = mesh_example::get_example_scene_cottage_house();
 
-    // renderers
-    let mut shadow_map_renderer = ShadowMapRenderer::new(queue.clone(), scene.clone());
-    let mut deferred_map_renderer = DeferredMapRenderer::new(queue.clone(), scene.clone());
-    let mut lighting_renderer =
-        LightingRenderer::new(queue.clone(), scene.clone(), swapchain.image_format());
+    // Renderer for the scene
+    let mut scene_renderer = SceneRenderer::new(queue.clone(), scene.clone(), swapchain.image_format());
 
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-    let mut rotation = 0.0;
-    let mut rotation_light = 0.0;
+
+    let mut current_frame = Instant::now();
+    let mut last_frame = Instant::now();
+    let mut delta_time = current_frame.elapsed().as_millis();
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -178,6 +174,12 @@ pub fn vulkan_init() {
             recreate_swapchain = true;
         }
         Event::RedrawEventsCleared => {
+            // calculate delta time
+            current_frame = Instant::now();
+            delta_time = current_frame.checked_duration_since(last_frame).unwrap().as_millis();
+            last_frame = current_frame;
+
+
             let dimensions = surface.window().inner_size();
             if dimensions.width == 0 || dimensions.height == 0 {
                 return;
@@ -217,39 +219,9 @@ pub fn vulkan_init() {
                 recreate_swapchain = true;
             }
 
-            rotation += 0.00;
-            rotation_light += 0.005;
-            {
-                let mut scene_locked = scene.lock().unwrap();
-                scene_locked.rotate(rotation);
-                let light_rot = Matrix4::from_axis_angle(
-                    Vector3::new(0.0, 1.0, 0.0),
-                    Rad(rotation_light as f32),
-                ) * Point3::new(40.0, 50.0, -20.0).to_homogeneous();
-                scene_locked.directional_lights[0].lock().unwrap().position =
-                    Point3::new(light_rot.x, light_rot.y, light_rot.z);
-            }
-
             let future = previous_frame_end.take().unwrap().join(acquire_future);
 
-            shadow_map_renderer.begin_render_pass();
-            shadow_map_renderer.draw();
-            let shadow_future = Some(shadow_map_renderer.end_render_pass(future));
-
-            deferred_map_renderer.begin_render_pass();
-            deferred_map_renderer.draw();
-            let deferred_future = deferred_map_renderer.end_render_pass(shadow_future.unwrap());
-
-            lighting_renderer.begin_render_pass(images[image_num].clone());
-            lighting_renderer.draw(
-                shadow_map_renderer.shadow_image.clone(),
-                deferred_map_renderer.position_image.clone(),
-                deferred_map_renderer.albedo_specular_image.clone(),
-                deferred_map_renderer.normals_image.clone(),
-            );
-            let lighting_future = lighting_renderer.end_render_pass(deferred_future);
-
-            let future = lighting_future
+            let future = scene_renderer.draw(future, images[image_num].clone(), delta_time)
                 .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
                 .then_signal_fence_and_flush();
 
