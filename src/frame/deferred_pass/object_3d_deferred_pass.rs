@@ -285,7 +285,7 @@ impl Object3DDeferredPass {
             let (image, future) = ImmutableImage::from_iter(
                 image_data,
                 dimensions,
-                MipmapsCount::Log2,
+                MipmapsCount::One,
                 Format::R8G8B8A8_SRGB,
                 gfx_queue.clone(),
             )
@@ -423,7 +423,7 @@ layout(set = 0, binding = 0) uniform Data {
 } uniforms;
 
 void main() {
-    mat4 worldview = uniforms.view  * uniforms.model * uniforms.world;
+    mat4 worldview = uniforms.view  * uniforms.world * uniforms.model;
     mat4 model_view = uniforms.view * uniforms.model;
     v_normal = mat3(worldview) * normal;
     gl_Position = uniforms.proj * worldview * vec4(position, 1.0);

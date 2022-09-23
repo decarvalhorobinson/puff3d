@@ -53,11 +53,11 @@ impl Object3D {
                 self.transform.scale.z,
             );
         model = model
-            * Matrix4::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), Rad(self.transform.position.x));
+            * Matrix4::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), Rad(self.transform.rotation.x));
         model = model
-            * Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(self.transform.position.y));
+            * Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(self.transform.rotation.y));
         model = model
-            * Matrix4::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Rad(self.transform.position.z));
+            * Matrix4::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Rad(self.transform.rotation.z));
 
         self.model_matrix = model;
     }

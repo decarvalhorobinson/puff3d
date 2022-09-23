@@ -157,9 +157,10 @@ pub fn vulkan_init() {
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
 
-    let mut current_frame = Instant::now();
     let mut last_frame = Instant::now();
-    let mut delta_time = current_frame.elapsed().as_millis();
+
+    let mut fps = 0.0;
+    let mut counter = 0;
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
             event: WindowEvent::CloseRequested,
@@ -175,9 +176,23 @@ pub fn vulkan_init() {
         }
         Event::RedrawEventsCleared => {
             // calculate delta time
-            current_frame = Instant::now();
-            delta_time = current_frame.checked_duration_since(last_frame).unwrap().as_millis();
+            let current_frame = Instant::now();
+            let delta_time = current_frame.checked_duration_since(last_frame).unwrap().as_millis();
             last_frame = current_frame;
+
+
+            if (counter > 100) {
+                let fps_average = fps/counter as f32;
+                println!("{:?}", 1000.0/fps_average as f32);
+                counter = 0;
+                fps = 0.0;
+                
+                
+            }else{
+                counter += 1;
+                fps += delta_time as f32;
+            }
+            
 
 
             let dimensions = surface.window().inner_size();
