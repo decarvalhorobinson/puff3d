@@ -1,7 +1,8 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use vulkano::device::physical::{PhysicalDevice, PhysicalDeviceType};
+use vulkano::VulkanLibrary;
+use vulkano::device::physical::{PhysicalDeviceType};
 use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo};
 use vulkano::image::view::ImageView;
 use vulkano::image::ImageUsage;
@@ -9,7 +10,7 @@ use vulkano::instance::{Instance, InstanceCreateInfo};
 
 use vulkano::swapchain::{
     acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError,
+    SwapchainCreationError, PresentInfo,
 };
 use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
@@ -24,8 +25,11 @@ use super::mesh_example;
 use crate::frame::scene_renderer::SceneRenderer;
 
 fn create_instance() -> Arc<Instance> {
-    let required_extensions = vulkano_win::required_extensions();
-    Instance::new(InstanceCreateInfo {
+    let library = VulkanLibrary::new().unwrap();
+    let required_extensions = vulkano_win::required_extensions(&library);
+    Instance::new(
+        library,
+        InstanceCreateInfo {
         enabled_extensions: required_extensions,
         // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
         enumerate_portability: true,
@@ -51,14 +55,20 @@ fn create_device<'a>(
     // select best physical device
     let device_extensions = DeviceExtensions {
         khr_swapchain: true,
-        ..DeviceExtensions::none()
+        ..DeviceExtensions::empty()
     };
-    let (physical_device, queue_family) = PhysicalDevice::enumerate(&instance)
-        .filter(|&p| p.supported_extensions().is_superset_of(&device_extensions))
+    let (physical_device, queue_family_index) = instance
+        .enumerate_physical_devices()
+        .unwrap()
+        .filter(|p| p.supported_extensions().contains(&device_extensions))
         .filter_map(|p| {
-            p.queue_families()
-                .find(|&q| q.supports_graphics() && q.supports_surface(&surface).unwrap_or(false))
-                .map(|q| (p, q))
+            p.queue_family_properties()
+                .iter()
+                .enumerate()
+                .position(|(i, q)| {
+                    q.queue_flags.graphics && p.surface_support(i as u32, &surface).unwrap_or(false)
+                })
+                .map(|i| (p, i as u32))
         })
         .min_by_key(|(p, _)| match p.properties().device_type {
             PhysicalDeviceType::DiscreteGpu => 0,
@@ -66,6 +76,7 @@ fn create_device<'a>(
             PhysicalDeviceType::VirtualGpu => 2,
             PhysicalDeviceType::Cpu => 3,
             PhysicalDeviceType::Other => 4,
+            _ => 5,
         })
         .unwrap();
 
@@ -80,7 +91,10 @@ fn create_device<'a>(
         physical_device,
         DeviceCreateInfo {
             enabled_extensions: device_extensions,
-            queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
+            queue_create_infos: vec![QueueCreateInfo {
+                queue_family_index,
+                ..Default::default()
+            }],
             ..Default::default()
         },
     )
@@ -116,7 +130,7 @@ fn create_swapchain(
             image_extent: surface.window().inner_size().into(),
             image_usage: ImageUsage {
                 color_attachment: true,
-                ..ImageUsage::none()
+                ..ImageUsage::empty()
             },
             composite_alpha: surface_capabilities
                 .supported_composite_alpha
@@ -181,7 +195,7 @@ pub fn vulkan_init() {
             last_frame = current_frame;
 
 
-            if (counter > 100) {
+            if counter > 100 {
                 let fps_average = fps/counter as f32;
                 println!("{:?}", 1000.0/fps_average as f32);
                 counter = 0;
@@ -237,7 +251,13 @@ pub fn vulkan_init() {
             let future = previous_frame_end.take().unwrap().join(acquire_future);
 
             let future = scene_renderer.draw(future, images[image_num].clone(), delta_time)
-                .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
+                .then_swapchain_present(
+                    queue.clone(),
+                    PresentInfo {
+                        index: image_num,
+                        ..PresentInfo::swapchain(swapchain.clone())
+                    },
+                )
                 .then_signal_fence_and_flush();
 
             match future {

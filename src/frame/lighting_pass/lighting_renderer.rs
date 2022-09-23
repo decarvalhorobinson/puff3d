@@ -113,7 +113,7 @@ impl LightingRenderer {
 
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();

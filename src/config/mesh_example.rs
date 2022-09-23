@@ -30,7 +30,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     };
 
     let mesh = get_example_mesh_cottage_house();
-    for n in 1..300 {
+    for n in 1..2 {
         let mut obj = Object3D::new();
         obj.mesh = mesh.clone();
         obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();

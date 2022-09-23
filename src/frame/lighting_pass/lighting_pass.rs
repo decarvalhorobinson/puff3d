@@ -120,7 +120,7 @@ impl LightingPass {
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
@@ -227,7 +227,7 @@ impl LightingPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 vertices,

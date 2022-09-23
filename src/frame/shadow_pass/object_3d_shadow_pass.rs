@@ -80,7 +80,7 @@ impl Object3DShadowPass {
                 proj: projection.into(),
             };
 
-            self.uniform_data_buffer.next(uniform_data).unwrap()
+            self.uniform_data_buffer.from_data(uniform_data).unwrap()
         };
 
         let layout = self.pipeline_depth.layout().set_layouts().get(0).unwrap();
@@ -94,7 +94,7 @@ impl Object3DShadowPass {
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
@@ -159,7 +159,7 @@ impl Object3DShadowPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.vertices.clone(),
@@ -172,7 +172,7 @@ impl Object3DShadowPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     index_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.indices.clone(),
@@ -184,7 +184,7 @@ impl Object3DShadowPass {
             gfx_queue.device().clone(),
             BufferUsage {
                 uniform_buffer: true,
-                ..BufferUsage::none()
+                ..BufferUsage::empty()
             },
         );
 

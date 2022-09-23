@@ -109,7 +109,7 @@ impl Object3DDeferredPass {
                 proj: projection.into(),
             };
 
-            self.buffers.uniform_buffer.next(uniform_data).unwrap()
+            self.buffers.uniform_buffer.from_data(uniform_data).unwrap()
         };
 
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
@@ -123,7 +123,7 @@ impl Object3DDeferredPass {
 
         let mut builder = AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::MultipleSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
@@ -320,7 +320,7 @@ impl Object3DDeferredPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.vertices.clone(),
@@ -333,7 +333,7 @@ impl Object3DDeferredPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.normals.clone(),
@@ -346,7 +346,7 @@ impl Object3DDeferredPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.uvs.clone(),
@@ -359,7 +359,7 @@ impl Object3DDeferredPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     vertex_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.tangent.clone(),
@@ -372,7 +372,7 @@ impl Object3DDeferredPass {
                 gfx_queue.device().clone(),
                 BufferUsage {
                     index_buffer: true,
-                    ..BufferUsage::none()
+                    ..BufferUsage::empty()
                 },
                 false,
                 object_3d.mesh.indices.clone(),
@@ -384,7 +384,7 @@ impl Object3DDeferredPass {
             gfx_queue.device().clone(),
             BufferUsage {
                 uniform_buffer: true,
-                ..BufferUsage::none()
+                ..BufferUsage::empty()
             },
         );
 

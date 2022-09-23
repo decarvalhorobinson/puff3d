@@ -87,7 +87,7 @@ impl DeferredMapRenderer {
                     transient_attachment: false,
                     input_attachment: false,
                     sampled: true,
-                    ..ImageUsage::none()
+                    ..ImageUsage::empty()
                 },
             )
             .unwrap(),
@@ -103,7 +103,7 @@ impl DeferredMapRenderer {
                     transient_attachment: false,
                     input_attachment: false,
                     sampled: true,
-                    ..ImageUsage::none()
+                    ..ImageUsage::empty()
                 },
             )
             .unwrap(),
@@ -118,7 +118,7 @@ impl DeferredMapRenderer {
                     transient_attachment: false,
                     input_attachment: false,
                     sampled: true,
-                    ..ImageUsage::none()
+                    ..ImageUsage::empty()
                 },
             )
             .unwrap(),
@@ -132,7 +132,7 @@ impl DeferredMapRenderer {
                 ImageUsage {
                     transient_attachment: true,
                     input_attachment: true,
-                    ..ImageUsage::none()
+                    ..ImageUsage::empty()
                 },
             )
             .unwrap(),
@@ -202,7 +202,7 @@ impl DeferredMapRenderer {
         .unwrap();
         let mut command_buffer_builder = AutoCommandBufferBuilder::primary(
             self.gfx_queue.device().clone(),
-            self.gfx_queue.family(),
+            self.gfx_queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )
         .unwrap();
