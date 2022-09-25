@@ -1,26 +1,28 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use vulkano::VulkanLibrary;
-use vulkano::device::physical::{PhysicalDeviceType};
+use vulkano::device::physical::PhysicalDeviceType;
 use vulkano::device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo};
 use vulkano::image::view::ImageView;
 use vulkano::image::ImageUsage;
 use vulkano::instance::{Instance, InstanceCreateInfo};
+use vulkano::VulkanLibrary;
 
 use vulkano::swapchain::{
-    acquire_next_image, AcquireError, Surface, Swapchain, SwapchainCreateInfo,
-    SwapchainCreationError, PresentInfo,
+    acquire_next_image, AcquireError, PresentInfo, Surface, Swapchain, SwapchainCreateInfo,
+    SwapchainCreationError,
 };
 use vulkano::sync::{self, FlushError, GpuFuture};
 use vulkano_win::VkSurfaceBuild;
 
+use winit::dpi::LogicalPosition;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
 
+use super::input::Input;
 use super::mesh_example;
 use crate::frame::scene_renderer::SceneRenderer;
 
@@ -30,11 +32,12 @@ fn create_instance() -> Arc<Instance> {
     Instance::new(
         library,
         InstanceCreateInfo {
-        enabled_extensions: required_extensions,
-        // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
-        enumerate_portability: true,
-        ..Default::default()
-    })
+            enabled_extensions: required_extensions,
+            // Enable enumerating devices that use non-conformant vulkan implementations. (ex. MoltenVK)
+            enumerate_portability: true,
+            ..Default::default()
+        },
+    )
     .unwrap()
 }
 
@@ -165,49 +168,40 @@ pub fn vulkan_init() {
     let scene = mesh_example::get_example_scene_cottage_house();
 
     // Renderer for the scene
-    let mut scene_renderer = SceneRenderer::new(queue.clone(), scene.clone(), swapchain.image_format());
+    let mut scene_renderer =
+        SceneRenderer::new(queue.clone(), scene.clone(), swapchain.image_format());
 
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
-
 
     let mut last_frame = Instant::now();
 
     let mut fps = 0.0;
     let mut counter = 0;
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::WindowEvent {
-            event: WindowEvent::CloseRequested,
-            ..
-        } => {
-            *control_flow = ControlFlow::Exit;
-        }
-        Event::WindowEvent {
-            event: WindowEvent::Resized(_),
-            ..
-        } => {
-            recreate_swapchain = true;
-        }
-        Event::RedrawEventsCleared => {
+
+    surface.window().set_cursor_visible(false);
+    let mut input_handler = Input::new();
+    event_loop.run(move |event, _, control_flow| {
+        if input_handler.update(&event) {
+            _ = surface.window().set_cursor_position(LogicalPosition::new(0.5, 0.5));
+
             // calculate delta time
             let current_frame = Instant::now();
-            let delta_time = current_frame.checked_duration_since(last_frame).unwrap().as_millis();
+            let delta_time = current_frame
+                .checked_duration_since(last_frame)
+                .unwrap()
+                .as_millis();
             last_frame = current_frame;
 
-
             if counter > 100 {
-                let fps_average = fps/counter as f32;
-                println!("{:?}", 1000.0/fps_average as f32);
+                let fps_average = fps / counter as f32;
+                println!("{:?}", 1000.0 / fps_average as f32);
                 counter = 0;
                 fps = 0.0;
-                
-                
-            }else{
+            } else {
                 counter += 1;
                 fps += delta_time as f32;
             }
-            
-
 
             let dimensions = surface.window().inner_size();
             if dimensions.width == 0 || dimensions.height == 0 {
@@ -250,7 +244,8 @@ pub fn vulkan_init() {
 
             let future = previous_frame_end.take().unwrap().join(acquire_future);
 
-            let future = scene_renderer.draw(future, images[image_num].clone(), delta_time)
+            let future = scene_renderer
+                .draw(future, images[image_num].clone(), delta_time, &input_handler)
                 .then_swapchain_present(
                     queue.clone(),
                     PresentInfo {
@@ -274,6 +269,20 @@ pub fn vulkan_init() {
                 }
             }
         }
-        _ => (),
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                *control_flow = ControlFlow::Exit;
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(_),
+                ..
+            } => {
+                recreate_swapchain = true;
+            }
+            _ => (),
+        }
     });
 }

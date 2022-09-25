@@ -35,7 +35,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
         obj.mesh = mesh.clone();
         obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();
         obj.material.normal_file_path = "./src/cottage_house/cottage_normal.png".into();
-        obj.transform.position = Vector3::new(n as f32/10.0, n as f32/10.0, n as f32/10.0);
+        obj.transform.position = Vector3::new(n as f32 / 10.0, n as f32 / 10.0, n as f32 / 10.0);
         obj.update_model_matrix();
         scene.objects.push(obj);
     }
