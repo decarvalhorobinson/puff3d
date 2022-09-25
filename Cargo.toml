@@ -16,7 +16,3 @@ bytemuck = "1.8.0"
 cgmath = "0.18"
 regex = "1"
 png = "0.17"
-
-# for handling continuos input event
-winit_input_helper = "0.13.0"
-
