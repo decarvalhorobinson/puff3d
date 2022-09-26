@@ -30,15 +30,6 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     };
 
     let mesh = get_example_mesh_cottage_house();
-    for n in 1..2 {
-        let mut obj = Object3D::new();
-        obj.mesh = mesh.clone();
-        obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();
-        obj.material.normal_file_path = "./src/cottage_house/cottage_normal.png".into();
-        obj.transform.position = Vector3::new(n as f32 / 10.0, n as f32 / 10.0, n as f32 / 10.0);
-        obj.update_model_matrix();
-        scene.objects.push(obj);
-    }
 
     let obj_to_mesh_converter =
         ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
@@ -46,14 +37,25 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.mesh = obj_to_mesh_converter.create_mesh();
     obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
     obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
-    obj.transform.scale = Vector3::new(5.0, 5.0, 5.0);
+
     obj.update_model_matrix();
     scene.objects.push(obj);
 
-    let mut obj = Object3D::new();
+    /*let mut obj = Object3D::new();
     obj.mesh = get_example_mesh_cottage_house();
     obj.material.diffuse_file_path = "./src/cottage_house/cottage_diffuse.png".into();
     obj.material.normal_file_path = "./src/cottage_house/cottage_normal.png".into();
+    obj.update_model_matrix();
+    scene.objects.push(obj);*/
+
+
+    let obj_to_mesh_converter =
+        ObjFileToMeshConverter::new(String::from("./src/watch_tower/watch_tower.obj"));
+    let mesh = obj_to_mesh_converter.create_mesh();
+    let mut obj = Object3D::new();
+    obj.mesh = mesh;
+    obj.material.diffuse_file_path = "./src/watch_tower/textures/diffuse.png".into();
+    obj.material.normal_file_path = "./src/watch_tower/textures/normals.png".into();
     obj.update_model_matrix();
     scene.objects.push(obj);
 

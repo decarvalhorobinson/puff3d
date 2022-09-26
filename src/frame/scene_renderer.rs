@@ -106,7 +106,12 @@ impl SceneRenderer {
         if input_handler.key_held(VirtualKeyCode::S) {
             self.process_keyboard(CameraMovement::Backward, delta_time as f32);
         }
-
+        if input_handler.key_held(VirtualKeyCode::Space) {
+            self.process_keyboard(CameraMovement::Top, delta_time as f32);
+        }
+        if input_handler.key_held(VirtualKeyCode::LControl) {
+            self.process_keyboard(CameraMovement::Down, delta_time as f32);
+        }
         self.process_mouse_movement(input_handler.mouse_dx, input_handler.mouse_dy);
     }
 

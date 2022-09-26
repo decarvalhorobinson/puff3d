@@ -1,4 +1,4 @@
-use cgmath::{Angle, EuclideanSpace, Euler, InnerSpace, Matrix4, Point3, Rad, Vector3};
+use cgmath::{Angle, EuclideanSpace, Euler, InnerSpace, Matrix4, Point3, Rad, Vector3, Deg};
 
 #[derive(PartialEq)]
 pub enum CameraMovement {
@@ -39,8 +39,8 @@ pub struct Camera {
     pub movement_speed: f32,
 }
 
-const SPEED: f32 = 0.1f32;
-const SENSITIVTY: f32 = 0.025f32;
+const SPEED: f32 = 0.05f32;
+const SENSITIVTY: f32 = 0.5f32;
 const ZOOM: f32 = 72.0f32;
 
 impl Camera {
@@ -89,17 +89,19 @@ impl Camera {
         x_offset *= self.mouse_sensitivity;
         y_offset *= self.mouse_sensitivity;
 
+        println!("pitch: {:?}, yaw: {:?}",  self.pitch_yaw_roll.x, self.pitch_yaw_roll.y);
+
         //set pitch
         self.pitch_yaw_roll.x -= y_offset;
         //set Yaw
         self.pitch_yaw_roll.y -= x_offset;
 
-        if self.pitch_yaw_roll.x > 85.0 {
-            self.pitch_yaw_roll.x = 85.0;
+        if self.pitch_yaw_roll.x > 89.0 {
+            self.pitch_yaw_roll.x = 89.0;
         }
 
-        if self.pitch_yaw_roll.x < -85.0 {
-            self.pitch_yaw_roll.x = -85.0;
+        if self.pitch_yaw_roll.x < -89.0 {
+            self.pitch_yaw_roll.x = -89.0;
         }
 
         // Update Front, Right and Up Vectors using the updated Eular angles
@@ -109,9 +111,9 @@ impl Camera {
     pub fn update_camera_vectors(&mut self) {
         // Calculate the new Front vector
         let mut front = Vector3::new(0.0, 0.0, 0.0);
-        front.x = Angle::cos(Rad(self.pitch_yaw_roll.y)) * Angle::cos(Rad(self.pitch_yaw_roll.x));
-        front.y = Angle::sin(Rad(self.pitch_yaw_roll.x));
-        front.z = Angle::sin(Rad(self.pitch_yaw_roll.y)) * Angle::cos(Rad(self.pitch_yaw_roll.x));
+        front.x = Angle::cos(Deg(self.pitch_yaw_roll.y)) * Angle::cos(Deg(self.pitch_yaw_roll.x));
+        front.y = Angle::sin(Deg(self.pitch_yaw_roll.x));
+        front.z = Angle::sin(Deg(self.pitch_yaw_roll.y)) * Angle::cos(Deg(self.pitch_yaw_roll.x));
         self.target = Point3::from_vec(front.normalize());
         // Also re-calculate the Right and Up vector
         self.right_direction =
