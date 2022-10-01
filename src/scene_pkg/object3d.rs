@@ -31,9 +31,9 @@ impl Object3D {
             material: Material {
                 diffuse_file_path: String::new(),
                 normal_file_path: String::new(),
-                specular_file_path: String::new(),
-                metalness_file_path: String::new(),
+                metallic_file_path: String::new(),
                 roughness_file_path: String::new(),
+                ao_file_path: String::new()
             },
             visibility: true,
             model_matrix: Matrix4::identity(),

@@ -31,7 +31,11 @@ pub struct DeferredMapRenderer {
     pub position_image: Arc<ImageView<AttachmentImage>>,
     pub albedo_specular_image: Arc<ImageView<AttachmentImage>>,
     pub normals_image: Arc<ImageView<AttachmentImage>>,
+    pub mettalic_image: Arc<ImageView<AttachmentImage>>,
+    pub roughness_image: Arc<ImageView<AttachmentImage>>,
+    pub ao_image: Arc<ImageView<AttachmentImage>>,
     depth_image: Arc<ImageView<AttachmentImage>>,
+    
 }
 
 impl DeferredMapRenderer {
@@ -49,14 +53,35 @@ impl DeferredMapRenderer {
                 albedo_specular: {
                     load: Clear,
                     store: Store,
-                    format: Format::R16G16B16A16_SFLOAT,
+                    format: Format::R8G8B8A8_SRGB,
                     samples: 1,
                 },
                 // Will be bound to `self.normals_image`.
                 normals: {
                     load: Clear,
                     store: Store,
-                    format: Format::R16G16B16A16_SNORM,
+                    format: Format::R8G8B8A8_UNORM,
+                    samples: 1,
+                },
+                // Will be bound to `self.metallic_image`.
+                mettalic: {
+                    load: Clear,
+                    store: Store,
+                    format: Format::R8G8B8A8_UNORM,
+                    samples: 1,
+                },
+                // Will be bound to `self.roughness_image`.
+                roughness: {
+                    load: Clear,
+                    store: Store,
+                    format: Format::R8G8B8A8_UNORM,
+                    samples: 1,
+                },
+                // Will be bound to `self.ao_image`.
+                ao: {
+                    load: Clear,
+                    store: Store,
+                    format: Format::R8G8B8A8_UNORM,
                     samples: 1,
                 },
                 // Will be bound to `self.depth_image`.
@@ -70,7 +95,7 @@ impl DeferredMapRenderer {
             passes: [
                 // Write to the diffuse, normals and depth attachments.
                 {
-                    color: [position, albedo_specular, normals],
+                    color: [position, albedo_specular, normals, mettalic, roughness, ao],
                     depth_stencil: {depth},
                     input: []
                 }
@@ -94,11 +119,11 @@ impl DeferredMapRenderer {
         )
         .unwrap();
 
-        let albedo_specular_image = ImageView::new_default(
+        let base_color_image = ImageView::new_default(
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
-                Format::R16G16B16A16_SFLOAT,
+                Format::R8G8B8A8_SRGB,
                 ImageUsage {
                     transient_attachment: false,
                     input_attachment: false,
@@ -113,7 +138,52 @@ impl DeferredMapRenderer {
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
-                Format::R16G16B16A16_SNORM,
+                Format::R8G8B8A8_UNORM,
+                ImageUsage {
+                    transient_attachment: false,
+                    input_attachment: false,
+                    sampled: true,
+                    ..ImageUsage::empty()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mettalic_image = ImageView::new_default(
+            AttachmentImage::with_usage(
+                gfx_queue.device().clone(),
+                [2048, 2048],
+                Format::R8G8B8A8_UNORM,
+                ImageUsage {
+                    transient_attachment: false,
+                    input_attachment: false,
+                    sampled: true,
+                    ..ImageUsage::empty()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let roughness_image = ImageView::new_default(
+            AttachmentImage::with_usage(
+                gfx_queue.device().clone(),
+                [2048, 2048],
+                Format::R8G8B8A8_UNORM,
+                ImageUsage {
+                    transient_attachment: false,
+                    input_attachment: false,
+                    sampled: true,
+                    ..ImageUsage::empty()
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let ao_image = ImageView::new_default(
+            AttachmentImage::with_usage(
+                gfx_queue.device().clone(),
+                [2048, 2048],
+                Format::R8G8B8A8_UNORM,
                 ImageUsage {
                     transient_attachment: false,
                     input_attachment: false,
@@ -159,8 +229,11 @@ impl DeferredMapRenderer {
             command_buffer_builder: Option::None,
 
             position_image: position_image,
-            albedo_specular_image: albedo_specular_image,
+            albedo_specular_image: base_color_image,
             normals_image: normals_image,
+            mettalic_image,
+            roughness_image,
+            ao_image,
             depth_image: depth_image,
         }
     }
@@ -194,6 +267,9 @@ impl DeferredMapRenderer {
                     self.position_image.clone(),
                     self.albedo_specular_image.clone(),
                     self.normals_image.clone(),
+                    self.mettalic_image.clone(),
+                    self.roughness_image.clone(),
+                    self.ao_image.clone(),
                     self.depth_image.clone(),
                 ],
                 ..Default::default()
@@ -210,6 +286,9 @@ impl DeferredMapRenderer {
             .begin_render_pass(
                 RenderPassBeginInfo {
                     clear_values: vec![
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
+                        Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),
                         Some([0.0, 0.0, 0.0, 0.0].into()),

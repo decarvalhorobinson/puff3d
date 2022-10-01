@@ -32,7 +32,7 @@ pub struct Object3DShadowPass {
     pipeline_depth: Arc<GraphicsPipeline>,
     subpass: Subpass,
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
-    index_buffer: Arc<CpuAccessibleBuffer<[u16]>>,
+    index_buffer: Arc<CpuAccessibleBuffer<[u32]>>,
     uniform_data_buffer: CpuBufferPool<vs_depth::ty::Data>,
 }
 
@@ -151,7 +151,7 @@ impl Object3DShadowPass {
         object_3d: Object3D,
     ) -> (
         Arc<CpuAccessibleBuffer<[Vertex]>>,
-        Arc<CpuAccessibleBuffer<[u16]>>,
+        Arc<CpuAccessibleBuffer<[u32]>>,
         CpuBufferPool<vs_depth::ty::Data>,
     ) {
         let vertex_buffer = {

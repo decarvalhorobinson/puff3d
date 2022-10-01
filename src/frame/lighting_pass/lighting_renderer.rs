@@ -78,25 +78,34 @@ impl LightingRenderer {
         position_image: Arc<dyn ImageViewAbstract + 'static>,
         color_image: Arc<dyn ImageViewAbstract + 'static>,
         normals_image: Arc<dyn ImageViewAbstract + 'static>,
+        metallic_image: Arc<dyn ImageViewAbstract + 'static>,
+        roughness_image: Arc<dyn ImageViewAbstract + 'static>,
+        ao_image: Arc<dyn ImageViewAbstract + 'static>,
     ) {
         let view;
         let world;
+        let camera_pos;
         {
             let scene_locked = self.scene.lock().unwrap();
             world = scene_locked.world_model;
             view = scene_locked.active_camera.get_view_matrix();
+            camera_pos = scene_locked.active_camera.position.to_homogeneous();
+            
         }
 
         for i in 0..self.lighting_passes.len() {
             let cb = self.lighting_passes[i].draw(
                 self.framebuffer.clone().unwrap().extent(),
+                camera_pos,
                 world,
                 view,
                 shadow_image.clone(),
                 position_image.clone(),
                 color_image.clone(),
                 normals_image.clone(),
-            );
+                metallic_image.clone(),
+                roughness_image.clone(),
+                ao_image.clone());
             self.execute_draw_pass(cb);
         }
     }

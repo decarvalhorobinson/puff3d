@@ -25,6 +25,35 @@ impl ops::Sub<Vertex> for Vertex {
     }
 }
 
+impl ops::Add<Vertex> for Vertex {
+    type Output = Vertex;
+
+    fn add(self, rhs: Vertex) -> Self::Output {
+        Vertex {
+            position: [
+                self.position[0] + rhs.position[0],
+                self.position[1] + rhs.position[1],
+                self.position[2] + rhs.position[2],
+            ],
+        }
+    }
+}
+
+impl ops::Neg for Vertex {
+    type Output = Vertex;
+
+    fn neg(self) -> Self::Output {
+        Vertex {
+            position: [
+                -self.position[0],
+                -self.position[1],
+                -self.position[2],
+            ],
+        }
+    }
+}
+
+
 impl ops::Mul<f32> for Vertex {
     type Output = Vertex;
 
@@ -73,6 +102,16 @@ impl ops::Sub<Uv> for Uv {
     }
 }
 
+impl ops::Add<Uv> for Uv {
+    type Output = Uv;
+
+    fn add(self, rhs: Uv) -> Self::Output {
+        Uv {
+            uv: [self.uv[0] + rhs.uv[0], self.uv[1] + rhs.uv[1]],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Debug, Default)]
 pub struct Mesh {
@@ -80,5 +119,5 @@ pub struct Mesh {
     pub normals: Vec<Normal>,
     pub uvs: Vec<Uv>,
     pub tangent: Vec<Tangent>,
-    pub indices: Vec<u16>,
+    pub indices: Vec<u32>,
 }

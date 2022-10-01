@@ -88,6 +88,9 @@ impl SceneRenderer {
             self.deferred_map_renderer.position_image.clone(),
             self.deferred_map_renderer.albedo_specular_image.clone(),
             self.deferred_map_renderer.normals_image.clone(),
+            self.deferred_map_renderer.mettalic_image.clone(),
+            self.deferred_map_renderer.roughness_image.clone(),
+            self.deferred_map_renderer.ao_image.clone()
         );
         let lighting_future = self.lighting_renderer.end_render_pass(deferred_future);
         lighting_future

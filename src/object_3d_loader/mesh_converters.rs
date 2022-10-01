@@ -15,9 +15,9 @@ impl ObjFileToMeshConverter {
     }
     //public methods
     pub fn create_mesh(&self) -> Mesh {
-        let mut vertex_indices: Vec<u16> = vec![];
-        let mut uv_indices: Vec<u16> = vec![];
-        let mut normal_indices: Vec<u16> = vec![];
+        let mut vertex_indices: Vec<u32> = vec![];
+        let mut uv_indices: Vec<u32> = vec![];
+        let mut normal_indices: Vec<u32> = vec![];
 
         let mut tmp_vertices: Vec<Vertex> = vec![];
         let mut tmp_normals: Vec<Normal> = vec![];
@@ -53,24 +53,24 @@ impl ObjFileToMeshConverter {
                             tmp_normals.push(normal);
                         }
                         "f" => {
-                            let mut vertex_index: [u16; 3] = [0, 0, 0];
-                            let mut uv_index: [u16; 3] = [0, 0, 0];
-                            let mut normal_index: [u16; 3] = [0, 0, 0];
+                            let mut vertex_index: [u32; 3] = [0, 0, 0];
+                            let mut uv_index: [u32; 3] = [0, 0, 0];
+                            let mut normal_index: [u32; 3] = [0, 0, 0];
 
                             let mut index_string = line_parts.next().unwrap().split("/");
-                            vertex_index[0] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            uv_index[0] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            normal_index[0] = index_string.next().unwrap().parse::<u16>().unwrap();
+                            vertex_index[0] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            uv_index[0] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            normal_index[0] = index_string.next().unwrap().parse::<u32>().unwrap();
 
                             index_string = line_parts.next().unwrap().split("/");
-                            vertex_index[1] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            uv_index[1] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            normal_index[1] = index_string.next().unwrap().parse::<u16>().unwrap();
+                            vertex_index[1] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            uv_index[1] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            normal_index[1] = index_string.next().unwrap().parse::<u32>().unwrap();
 
                             index_string = line_parts.next().unwrap().split("/");
-                            vertex_index[2] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            uv_index[2] = index_string.next().unwrap().parse::<u16>().unwrap();
-                            normal_index[2] = index_string.next().unwrap().parse::<u16>().unwrap();
+                            vertex_index[2] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            uv_index[2] = index_string.next().unwrap().parse::<u32>().unwrap();
+                            normal_index[2] = index_string.next().unwrap().parse::<u32>().unwrap();
 
                             vertex_indices.push(vertex_index[0]);
                             vertex_indices.push(vertex_index[1]);
@@ -107,7 +107,7 @@ impl ObjFileToMeshConverter {
             let uv_index: usize = uv_indices[i] as usize;
             mesh.uvs.push(tmp_uvs[uv_index - 1]);
 
-            mesh.indices.push(i as u16);
+            mesh.indices.push(i as u32);
         }
 
         // calculate tangent and bitangent after indices have beeen reorganized

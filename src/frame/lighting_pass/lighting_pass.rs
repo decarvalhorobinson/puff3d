@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use cgmath::Matrix4;
+use cgmath::Vector4;
 use std::sync::Arc;
 use std::sync::Mutex;
 use vulkano::image::ImageViewAbstract;
@@ -74,12 +75,16 @@ impl LightingPass {
     pub fn draw(
         &mut self,
         viewport_dimensions: [u32; 2],
+        camera_pos: Vector4<f32>,
         world: Matrix4<f32>,
         view: Matrix4<f32>,
         shadow_image: Arc<dyn ImageViewAbstract + 'static>,
         position_image: Arc<dyn ImageViewAbstract + 'static>,
         color_image: Arc<dyn ImageViewAbstract + 'static>,
         normals_image: Arc<dyn ImageViewAbstract + 'static>,
+        metallic_image: Arc<dyn ImageViewAbstract + 'static>,
+        roughness_image: Arc<dyn ImageViewAbstract + 'static>,
+        ao_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> SecondaryAutoCommandBuffer {
         let (light_view, light_projection) =
             self.dir_light.lock().unwrap().clone().view_projection();
@@ -89,13 +94,14 @@ impl LightingPass {
             let dir_light_locked = self.dir_light.lock().unwrap();
             push_constants_fs = fs::ty::PushConstants {
                 color: dir_light_locked.color,
+                camera_pos: camera_pos.into(),
+                light_pos: dir_light_locked.position.to_homogeneous().into(),
                 direction: dir_light_locked.clone().direction().extend(0.0).into(),
                 light_proj_view_model: (light_projection * light_view).into(),
                 world: world.into(),
                 view: view.into(),
             };
         }
-
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
         let descriptor_set = PersistentDescriptorSet::new(
             layout.clone(),
@@ -108,6 +114,9 @@ impl LightingPass {
                 LightingPass::create_image_set(self.gfx_queue.clone(), 1, position_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 2, color_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 3, normals_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 4, metallic_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 5, roughness_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 6, ao_image.clone()),
             ],
         )
         .unwrap();
@@ -121,7 +130,7 @@ impl LightingPass {
         let mut builder = AutoCommandBufferBuilder::secondary(
             self.gfx_queue.device().clone(),
             self.gfx_queue.queue_family_index(),
-            CommandBufferUsage::MultipleSubmit,
+            CommandBufferUsage::OneTimeSubmit,
             CommandBufferInheritanceInfo {
                 render_pass: Some(self.subpass.clone().into()),
                 ..Default::default()
@@ -273,15 +282,17 @@ mod fs {
 
 layout(set = 0, binding = 0) uniform sampler2D shadow_map;
 
-// The `position_input` parameter of the `draw` method.
 layout(set = 0, binding = 1) uniform sampler2D u_position;
-// The `color_input` parameter of the `draw` method.
-layout(set = 0, binding = 2) uniform sampler2D u_diffuse;
-// The `normals_input` parameter of the `draw` method.
+layout(set = 0, binding = 2) uniform sampler2D u_base_color;
 layout(set = 0, binding = 3) uniform sampler2D u_normals;
+layout(set = 0, binding = 4) uniform sampler2D u_metallic;
+layout(set = 0, binding = 5) uniform sampler2D u_roughness;
+layout(set = 0, binding = 6) uniform sampler2D u_ao;
 
 layout(push_constant) uniform PushConstants {
     vec4 color;
+    vec4 camera_pos;
+    vec4 light_pos;
     vec4 direction;
     mat4 light_proj_view_model;
     mat4 world;
@@ -305,7 +316,7 @@ float shadow_calculation(float light_percent) {
         return 0.0;
     }
 
-    float bias = max(0.002 * (1.0 + light_percent), 0.0005); 
+    float bias = max(0.005 * (1.0 + light_percent), 0.001); 
     
     
     float shadow = 0.0;
@@ -322,23 +333,147 @@ float shadow_calculation(float light_percent) {
     return shadow;
 }
 
+// PBR methods
+const float PI = 3.14159265359;
+// ----------------------------------------------------------------------------
+float distribution_ggx(vec3 n, vec3 h, float roughness)
+{
+    float a = roughness*roughness;
+    float a2 = a*a;
+    float n_dot_h = max(dot(n, h), 0.0);
+    float n_dot_h2 = n_dot_h*n_dot_h;
+
+    float nom   = a2;
+    float denom = (n_dot_h2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return nom / denom;
+}
+// ----------------------------------------------------------------------------
+float geometry_schlick_ggx(float n_dot_v, float roughness)
+{
+    float r = (roughness + 1.0);
+    float k = (r*r) / 8.0;
+
+    float nom   = n_dot_v;
+    float denom = n_dot_v * (1.0 - k) + k;
+
+    return nom / denom;
+}
+// ----------------------------------------------------------------------------
+float geometry_smith(vec3 n, vec3 v, vec3 l, float roughness)
+{
+    float n_dot_v = max(dot(n, v), 0.0);
+    float n_dot_l = max(dot(n, l), 0.0);
+    float ggx2 = geometry_schlick_ggx(n_dot_v, roughness);
+    float ggx1 = geometry_schlick_ggx(n_dot_l, roughness);
+
+    return ggx1 * ggx2;
+}
+// ----------------------------------------------------------------------------
+vec3 fresnel_schlick(float cos_theta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+// ----------------------------------------------------------------------------
+// PBR methods end
+
+
+vec4 light() {
+    vec2 coord = v_frag_pos * 0.5 + 0.5;
+    vec4 in_position = texture(u_position, coord);
+    vec3 in_base_color = pow(texture(u_base_color, coord).rgb, vec3(2.2));
+    vec3 in_normal = normalize(texture(u_normals, coord).rgb);
+    vec4 in_shadow_map = texture(shadow_map, coord);
+    vec3 in_metallic = texture(u_metallic, coord).rgb;
+    vec3 in_roughness = texture(u_roughness, coord).rgb;
+    vec3 in_ao = texture(u_ao, coord).rgb;
+
+    float metallic = in_metallic.g;
+    float roughness = in_roughness.g;
+    float ao = in_ao.g;
+
+    in_normal = in_normal * 2 - 1;
+
+    vec3 N = normalize(in_normal);
+    vec3 V = normalize(push_constants.camera_pos).xyz;
+
+    // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
+    // of 0.04 and if it's a metal, use the in_base_color color as F0 (metallic workflow)    
+    vec3 F0 = vec3(0.5); 
+    F0 = mix(F0, in_base_color, metallic);
+
+    // reflectance equation
+    vec3 Lo = vec3(0.0);
+
+    // calculate per-light radiance
+    vec3 L = normalize(push_constants.light_pos).xyz;
+    vec3 H = normalize(V + L);
+    float distance = length(push_constants.light_pos.xyz);
+    float attenuation = 1.0 / (distance * distance);
+    vec3 radiance = push_constants.light_pos.xyz * attenuation;
+
+    // Cook-Torrance BRDF
+    float NDF = distribution_ggx(N, H, roughness);   
+    float G   = geometry_smith(N, V, L, roughness);      
+    vec3 F    = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), F0);
+        
+    vec3 numerator    = NDF * G * F; 
+    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
+    vec3 specular = numerator / denominator;
+    
+    // kS is equal to Fresnel
+    vec3 kS = F;
+    // for energy conservation, the diffuse and specular light can't
+    // be above 1.0 (unless the surface emits light); to preserve this
+    // relationship the diffuse component (kD) should equal 1.0 - kS.
+    vec3 kD = vec3(1.0) - kS;
+    // multiply kD by the inverse metalness such that only non-metals 
+    // have diffuse lighting, or a linear blend if partly metal (pure metals
+    // have no diffuse light).
+    kD *= 1.0 - metallic;	  
+
+    // scale light by NdotL
+    float NdotL = max(dot(N, L), 0.0);        
+
+    // add to outgoing radiance Lo
+    Lo += (kD * in_base_color / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+    
+    // ambient lighting (note that the next IBL tutorial will replace 
+    // this ambient lighting with environment lighting).
+    vec3 ambient = vec3(0.03) * in_base_color * ao;
+
+    vec3 color = ambient + Lo;
+
+    // HDR tonemapping
+    color = color / (color + vec3(1.0));
+    // gamma correct
+    color = pow(color, vec3(1.0/2.2)); 
+
+    return vec4(color, 1.0);
+}
 
 void main() {
     vec2 coord = v_frag_pos * 0.5 + 0.5;
     vec4 in_position = texture(u_position, coord);
-    vec3 in_diffuse = texture(u_diffuse, coord).rgb;
+    vec3 in_base_color = texture(u_base_color, coord).rgb;
     vec3 in_normal = normalize(texture(u_normals, coord).rgb);
     vec4 in_shadow_map = texture(shadow_map, coord);
+    vec3 in_metallic = texture(u_metallic, coord).rgb;
+    vec3 in_roughness = texture(u_roughness, coord).rgb;
+    vec3 in_ao = texture(u_ao, coord).rgb;
 
+    in_normal = in_normal * 2 - 1;
+    vec4 light_to_world = normalize(push_constants.direction);
+    float radiance = -dot(light_to_world.xyz, in_normal);
+    radiance = max(radiance, 0.3);
 
-    vec4 light_to_world = normalize(inverse(push_constants.view) * push_constants.direction);
-    float light_percent = -dot(light_to_world.xyz, in_normal);
-    light_percent = max(light_percent, 0.3);
+    float shadow = shadow_calculation(radiance);
 
-    float shadow = shadow_calculation(light_percent);
-    vec3 ambient_light = (vec3(0.2, 0.2, 0.2) * in_diffuse);
-    f_color.rgb = push_constants.color.rgb * in_diffuse * (1-shadow) * light_percent + ambient_light;
-    f_color.a = 1.0;
+    f_color = light();
+
+    //f_color.rgb = in_roughness;
+
     
 }",
         types_meta: {
