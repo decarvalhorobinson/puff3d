@@ -10,7 +10,7 @@ pub struct DirectionalLight {
 
 impl DirectionalLight {
     pub fn view_projection(self) -> (Matrix4<f32>, Matrix4<f32>) {
-        let near_plane: f32 = 0.0f32;
+        let near_plane: f32 = 0.001f32;
         let far_plane: f32 = 90.5f32;
         let projection = cgmath::ortho(-40.0f32, 40.0f32, -40.0f32, 40.0f32, near_plane, far_plane);
         let view: Matrix4<f32> =

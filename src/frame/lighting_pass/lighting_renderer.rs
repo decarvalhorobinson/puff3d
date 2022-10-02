@@ -19,7 +19,7 @@ pub struct LightingRenderer {
     pub scene: Arc<Mutex<Scene>>,
     pub gfx_queue: Arc<Queue>,
     pub render_pass: Arc<RenderPass>,
-    pub lighting_passes: Vec<LightingPass>,
+    pub lighting_pass: LightingPass,
 
     pub framebuffer: Option<Arc<Framebuffer>>,
     pub command_buffer_builder: Option<AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>>,
@@ -52,21 +52,17 @@ impl LightingRenderer {
         .unwrap();
 
         let scene_locked = scene.lock().unwrap();
-        let mut lighting_passes: Vec<LightingPass> = vec![];
-        lighting_passes.reserve(scene_locked.objects.len());
-        for dir_light in scene_locked.directional_lights.clone() {
-            lighting_passes.push(LightingPass::new(
-                gfx_queue.clone(),
-                render_pass.clone(),
-                dir_light,
-            ));
-        }
+        let lighting_pass = LightingPass::new(
+            gfx_queue.clone(),
+            render_pass.clone(),
+            scene_locked.directional_lights.clone(),
+        );
 
         LightingRenderer {
             scene: scene.clone(),
             gfx_queue: gfx_queue.clone(),
             render_pass: render_pass,
-            lighting_passes: lighting_passes,
+            lighting_pass: lighting_pass,
             framebuffer: Option::None,
             command_buffer_builder: Option::None,
         }
@@ -93,21 +89,19 @@ impl LightingRenderer {
             
         }
 
-        for i in 0..self.lighting_passes.len() {
-            let cb = self.lighting_passes[i].draw(
-                self.framebuffer.clone().unwrap().extent(),
-                camera_pos,
-                world,
-                view,
-                shadow_image.clone(),
-                position_image.clone(),
-                color_image.clone(),
-                normals_image.clone(),
-                metallic_image.clone(),
-                roughness_image.clone(),
-                ao_image.clone());
-            self.execute_draw_pass(cb);
-        }
+        let cb = self.lighting_pass.draw(
+            self.framebuffer.clone().unwrap().extent(),
+            camera_pos,
+            world,
+            view,
+            shadow_image.clone(),
+            position_image.clone(),
+            color_image.clone(),
+            normals_image.clone(),
+            metallic_image.clone(),
+            roughness_image.clone(),
+            ao_image.clone());
+        self.execute_draw_pass(cb);
     }
 
     pub fn begin_render_pass(&mut self, final_image: Arc<dyn ImageViewAbstract + 'static>) {

@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use cgmath::Matrix4;
 use cgmath::Vector4;
+use vulkano::buffer::BufferAccess;
+use vulkano::buffer::CpuBufferPool;
 use std::sync::Arc;
 use std::sync::Mutex;
 use vulkano::image::ImageViewAbstract;
@@ -40,11 +42,12 @@ use crate::scene_pkg::directional_light::DirectionalLight;
 #[derive(Clone)]
 struct Buffers {
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    lights_buffer:  CpuBufferPool::<fs::ty::Lights>
 }
 
 pub struct LightingPass {
     gfx_queue: Arc<Queue>,
-    dir_light: Arc<Mutex<DirectionalLight>>,
+    dir_lights: Vec<Arc<Mutex<DirectionalLight>>>,
     pipeline: Arc<GraphicsPipeline>,
     subpass: Subpass,
     buffers: Buffers,
@@ -55,7 +58,7 @@ impl LightingPass {
     pub fn new(
         gfx_queue: Arc<Queue>,
         render_pass: Arc<RenderPass>,
-        dir_light: Arc<Mutex<DirectionalLight>>,
+        dir_lights: Vec<Arc<Mutex<DirectionalLight>>>,
     ) -> LightingPass {
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
@@ -65,7 +68,7 @@ impl LightingPass {
 
         LightingPass {
             gfx_queue,
-            dir_light,
+            dir_lights,
             pipeline,
             subpass,
             buffers,
@@ -86,12 +89,11 @@ impl LightingPass {
         roughness_image: Arc<dyn ImageViewAbstract + 'static>,
         ao_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> SecondaryAutoCommandBuffer {
-        let (light_view, light_projection) =
-            self.dir_light.lock().unwrap().clone().view_projection();
-
+        let (light_view, light_projection) = self.dir_lights[0].lock().unwrap().clone().view_projection();
+        println!("{:?}", camera_pos);
         let push_constants_fs;
         {
-            let dir_light_locked = self.dir_light.lock().unwrap();
+            let dir_light_locked = self.dir_lights[0].lock().unwrap();
             push_constants_fs = fs::ty::PushConstants {
                 color: dir_light_locked.color,
                 camera_pos: camera_pos.into(),
@@ -117,6 +119,7 @@ impl LightingPass {
                 LightingPass::create_image_set(self.gfx_queue.clone(), 4, metallic_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 5, roughness_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 6, ao_image.clone()),
+                self.create_lights_set()
             ],
         )
         .unwrap();
@@ -147,6 +150,7 @@ impl LightingPass {
                 descriptor_set,
             )
             .push_constants(self.pipeline.layout().clone(), 0, push_constants_fs)
+            
             .bind_vertex_buffers(0, self.buffers.vertex_buffer.clone())
             .draw(self.buffers.vertex_buffer.len() as u32, 1, 0, 0)
             .unwrap();
@@ -154,6 +158,10 @@ impl LightingPass {
     }
 
     // private methods
+
+    fn transform_lights(&self) {
+
+    }
 
     fn create_image_set(
         gfx_queue: Arc<Queue>,
@@ -172,6 +180,30 @@ impl LightingPass {
         .unwrap();
 
         WriteDescriptorSet::image_view_sampler(binding_index, image_view, sampler)
+    }
+
+    fn create_lights_set(&self) -> WriteDescriptorSet {
+
+        let mut shader_lights: [fs::ty::DirectionalLight; 4]= Default::default();
+        for i in 0..shader_lights.len()  {
+            let pos = self.dir_lights[i].lock().unwrap().position.into();
+            let shader_light = fs::ty::DirectionalLight {
+                position: pos,
+                _dummy0: [1,1,1,1],
+            };
+            shader_lights[i] = shader_light;
+            
+        }
+        //descriptor set
+        let uniform_buffer_subbuffer = {
+            let uniform_data = fs::ty::Lights {
+                dir_lights: shader_lights
+            };
+
+            self.buffers.lights_buffer.from_data(uniform_data).unwrap()
+        };
+
+        WriteDescriptorSet::buffer(7, uniform_buffer_subbuffer)
     }
 
     fn create_shadow_image_set(
@@ -244,7 +276,15 @@ impl LightingPass {
             .expect("failed to create buffer")
         };
 
-        Buffers { vertex_buffer }
+        let lights_buffer = CpuBufferPool::<fs::ty::Lights>::new(
+            gfx_queue.device().clone(),
+            BufferUsage {
+                uniform_buffer: true,
+                ..BufferUsage::empty()
+            },
+        );
+
+        Buffers { vertex_buffer, lights_buffer}
     }
 }
 
@@ -288,6 +328,13 @@ layout(set = 0, binding = 3) uniform sampler2D u_normals;
 layout(set = 0, binding = 4) uniform sampler2D u_metallic;
 layout(set = 0, binding = 5) uniform sampler2D u_roughness;
 layout(set = 0, binding = 6) uniform sampler2D u_ao;
+struct DirectionalLight {
+    vec3 position;
+};
+
+layout(set = 0, binding = 7) uniform Lights {
+    DirectionalLight[4] dir_lights;
+} lights;
 
 layout(push_constant) uniform PushConstants {
     vec4 color;
@@ -298,6 +345,8 @@ layout(push_constant) uniform PushConstants {
     mat4 world;
     mat4 view;
 } push_constants;
+
+
 
 layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
@@ -389,9 +438,9 @@ vec4 light() {
     vec3 in_roughness = texture(u_roughness, coord).rgb;
     vec3 in_ao = texture(u_ao, coord).rgb;
 
-    float metallic = in_metallic.g;
-    float roughness = in_roughness.g;
-    float ao = in_ao.g;
+    float metallic = in_metallic.r;
+    float roughness = in_roughness.r;
+    float ao = in_ao.r;
 
     in_normal = in_normal * 2 - 1;
 
@@ -400,45 +449,47 @@ vec4 light() {
 
     // calculate reflectance at normal incidence; if dia-electric (like plastic) use F0 
     // of 0.04 and if it's a metal, use the in_base_color color as F0 (metallic workflow)    
-    vec3 F0 = vec3(0.5); 
+    vec3 F0 = vec3(0.04); 
     F0 = mix(F0, in_base_color, metallic);
 
     // reflectance equation
     vec3 Lo = vec3(0.0);
+    for(int i = 0; i < 4; ++i) 
+    {
 
-    // calculate per-light radiance
-    vec3 L = normalize(push_constants.light_pos).xyz;
-    vec3 H = normalize(V + L);
-    float distance = length(push_constants.light_pos.xyz);
-    float attenuation = 1.0 / (distance * distance);
-    vec3 radiance = push_constants.light_pos.xyz * attenuation;
+        // calculate per-light radiance
+        vec3 L = normalize(lights.dir_lights[i].position);
+        vec3 H = normalize(V + L);
+        float distance = length(lights.dir_lights[i].position);
+        float attenuation = 1.0 / 1.0;//(1 * 0.06*distance + 0.05*(distance * distance));
+        vec3 radiance = vec3(1.0, 1.0, 1.0) * attenuation;
 
-    // Cook-Torrance BRDF
-    float NDF = distribution_ggx(N, H, roughness);   
-    float G   = geometry_smith(N, V, L, roughness);      
-    vec3 F    = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), F0);
+        // Cook-Torrance BRDF
+        float NDF = distribution_ggx(N, H, roughness);   
+        float G   = geometry_smith(N, V, L, roughness);      
+        vec3 F    = fresnel_schlick(clamp(dot(H, V), 0.0, 1.0), F0);
+            
+        vec3 numerator    = NDF * G * F; 
+        float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
+        vec3 specular = numerator / denominator;
         
-    vec3 numerator    = NDF * G * F; 
-    float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001; // + 0.0001 to prevent divide by zero
-    vec3 specular = numerator / denominator;
-    
-    // kS is equal to Fresnel
-    vec3 kS = F;
-    // for energy conservation, the diffuse and specular light can't
-    // be above 1.0 (unless the surface emits light); to preserve this
-    // relationship the diffuse component (kD) should equal 1.0 - kS.
-    vec3 kD = vec3(1.0) - kS;
-    // multiply kD by the inverse metalness such that only non-metals 
-    // have diffuse lighting, or a linear blend if partly metal (pure metals
-    // have no diffuse light).
-    kD *= 1.0 - metallic;	  
+        // kS is equal to Fresnel
+        vec3 kS = F;
+        // for energy conservation, the diffuse and specular light can't
+        // be above 1.0 (unless the surface emits light); to preserve this
+        // relationship the diffuse component (kD) should equal 1.0 - kS.
+        vec3 kD = vec3(1.0) - kS;
+        // multiply kD by the inverse metalness such that only non-metals 
+        // have diffuse lighting, or a linear blend if partly metal (pure metals
+        // have no diffuse light).
+        kD *= 1.0 - metallic;	  
 
-    // scale light by NdotL
-    float NdotL = max(dot(N, L), 0.0);        
+        // scale light by NdotL
+        float NdotL = max(dot(N, L), 0.0);        
 
-    // add to outgoing radiance Lo
-    Lo += (kD * in_base_color / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
-    
+        // add to outgoing radiance Lo
+        Lo += (kD * in_base_color / PI + specular) * radiance * NdotL;  // note that we already multiplied the BRDF by the Fresnel (kS) so we won't multiply by kS again
+    }
     // ambient lighting (note that the next IBL tutorial will replace 
     // this ambient lighting with environment lighting).
     vec3 ambient = vec3(0.03) * in_base_color * ao;
@@ -466,11 +517,11 @@ void main() {
     in_normal = in_normal * 2 - 1;
     vec4 light_to_world = normalize(push_constants.direction);
     float radiance = -dot(light_to_world.xyz, in_normal);
-    radiance = max(radiance, 0.3);
+    radiance = max(radiance, 0.1);
 
     float shadow = shadow_calculation(radiance);
 
-    f_color = light();
+    f_color = light() * (1 - shadow);
 
     //f_color.rgb = in_roughness;
 
@@ -479,7 +530,7 @@ void main() {
         types_meta: {
             use bytemuck::{Pod, Zeroable};
 
-            #[derive(Clone, Copy, Zeroable, Pod)]
+            #[derive(Debug, Clone, Copy, Zeroable, Pod, Default)]
         },
     }
 }

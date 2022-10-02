@@ -24,9 +24,24 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
         world_model: Matrix4::identity(),
         directional_lights: vec![
             Arc::new(Mutex::new(DirectionalLight {
-            position: Point3::new(-2.7891858, 4.5151997, 0.7461442),
-            center: Point3::new(100.0, 100.0, 100.0),
-            color: [1.0, 1.0, 1.0, 1.0],
+                position: Point3::new(-10.3791118, 40.3532805, -30.0466344),
+                center: Point3::new(0.0, 0.0, 0.0),
+                color: [1.0, 1.0, 1.0, 1.0],
+            })),
+            Arc::new(Mutex::new(DirectionalLight {
+                position: Point3::new(1.1607763, 22.018295, -16.645638),
+                center: Point3::new(100.0, 100.0, 100.0),
+                color: [1.0, 1.0, 1.0, 1.0],
+            })),
+            Arc::new(Mutex::new(DirectionalLight {
+                position: Point3::new(-15.711648, 30.986532, 10.896686),
+                center: Point3::new(100.0, 100.0, 100.0),
+                color: [1.0, 1.0, 1.0, 1.0],
+            })),
+            Arc::new(Mutex::new(DirectionalLight {
+                position: Point3::new(-0.19470568, -2.1034627, -0.34011033),
+                center: Point3::new(100.0, 100.0, 100.0),
+                color: [1.0, 1.0, 1.0, 1.0],
             })),],
     };
 
@@ -37,9 +52,9 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.mesh = obj_to_mesh_converter.create_mesh();
     obj.material.diffuse_file_path = "./src/brick_wall/brickwall.png".into();
     obj.material.normal_file_path = "./src/brick_wall/brickwall_normal.png".into();
-    obj.material.metallic_file_path = "./src/sphere/metallic2.png".into();
-    obj.material.roughness_file_path = "./src/sphere/roughness2.png".into();
-    obj.material.ao_file_path = "./src/sphere/ao2.png".into();
+    obj.material.metallic_file_path = "./src/brick_wall/brickwall.png".into();
+    obj.material.roughness_file_path = "./src/brick_wall/brickwall.png".into();
+    obj.material.ao_file_path = "./src/brick_wall/brickwall.png".into();
 
     obj.update_model_matrix();
     scene.objects.push(obj);

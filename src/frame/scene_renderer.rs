@@ -60,17 +60,6 @@ impl SceneRenderer {
 
         self.process_input(&input, delta_time);
 
-        self.rotation_light += 0.005;
-        {
-            let scene_locked = self.scene.lock().unwrap();
-            let light_rot = Matrix4::from_axis_angle(
-                Vector3::new(0.0, 1.0, 0.0),
-                Rad(self.rotation_light as f32),
-            ) * Point3::new(40.0, 50.0, -20.0).to_homogeneous();
-            scene_locked.directional_lights[0].lock().unwrap().position =
-                Point3::new(light_rot.x, light_rot.y, light_rot.z);
-        }
-
         self.shadow_map_renderer.begin_render_pass();
         self.shadow_map_renderer.draw();
         let shadow_future = Some(self.shadow_map_renderer.end_render_pass(future));
