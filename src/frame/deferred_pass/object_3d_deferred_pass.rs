@@ -1,4 +1,5 @@
 use cgmath::Matrix4;
+use image::GenericImageView;
 use std::fs::File;
 use std::io::BufReader;
 use std::io::Read;
@@ -13,6 +14,9 @@ use vulkano::sampler::Filter;
 use vulkano::sampler::Sampler;
 use vulkano::sampler::SamplerAddressMode;
 use vulkano::sampler::SamplerCreateInfo;
+use image::io::Reader as ImageReader;
+use image::ColorType;
+use image::DynamicImage;
 use vulkano::{
     buffer::{BufferUsage, CpuAccessibleBuffer, CpuBufferPool, TypedBufferAccess},
     command_buffer::{
@@ -77,7 +81,7 @@ impl Object3DDeferredPass {
             gfx_queue.clone(),
             pipeline.clone(),
             object_3d.material.diffuse_file_path.clone(),
-            Format::R8G8B8A8_SRGB,
+            Format::R8G8B8A8_UNORM,
             1
         );
 
@@ -254,30 +258,27 @@ impl Object3DDeferredPass {
         gfx_queue: Arc<Queue>,
         pipeline: Arc<GraphicsPipeline>,
         path: String,
-        format: Format,
+        mut format: Format,
         layout: usize
     ) -> Arc<PersistentDescriptorSet> {
         let (map, _future) = {
-            let f = File::open(path).unwrap();
-            let mut reader = BufReader::new(f);
-            let mut png_bytes = Vec::new();
-            reader.read_to_end(&mut png_bytes).unwrap();
+            let img = ImageReader::open(path.clone()).unwrap().decode().unwrap();
+            
+            println!("{:?}", path.clone());
+            println!("{:?}", img.color());
+            println!("{:?}", format);
+            println!("-----------");
+            let img_rgba8 = img.to_rgba8();
 
-            let cursor = Cursor::new(png_bytes);
-            let decoder = png::Decoder::new(cursor);
-            let mut reader = decoder.read_info().unwrap();
-            let info = reader.info();
+            let dim = img.dimensions();
             let dimensions = ImageDimensions::Dim2d {
-                width: info.width,
-                height: info.height,
+                width: dim.0,
+                height: dim.1,
                 array_layers: 1,
             };
-            let mut image_data = Vec::new();
-            image_data.resize((info.width * info.height * 4) as usize, 0);
-            reader.next_frame(&mut image_data).unwrap();
 
             let (image, future) = ImmutableImage::from_iter(
-                image_data,
+                img_rgba8.clone().into_vec(),
                 dimensions,
                 MipmapsCount::One,
                 format,

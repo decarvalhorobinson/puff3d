@@ -53,7 +53,7 @@ impl DeferredMapRenderer {
                 albedo_specular: {
                     load: Clear,
                     store: Store,
-                    format: Format::R8G8B8A8_SRGB,
+                    format: Format::R8G8B8A8_UNORM,
                     samples: 1,
                 },
                 // Will be bound to `self.normals_image`.
@@ -123,7 +123,7 @@ impl DeferredMapRenderer {
             AttachmentImage::with_usage(
                 gfx_queue.device().clone(),
                 [2048, 2048],
-                Format::R8G8B8A8_SRGB,
+                Format::R8G8B8A8_UNORM,
                 ImageUsage {
                     transient_attachment: false,
                     input_attachment: false,

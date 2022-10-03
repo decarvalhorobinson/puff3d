@@ -29,17 +29,17 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
                 color: [1.0, 1.0, 1.0, 1.0],
             })),
             Arc::new(Mutex::new(DirectionalLight {
-                position: Point3::new(1.1607763, 22.018295, -16.645638),
+                position: Point3::new(-10.3791118, 40.3532805, -30.0466344),
                 center: Point3::new(100.0, 100.0, 100.0),
                 color: [1.0, 1.0, 1.0, 1.0],
             })),
             Arc::new(Mutex::new(DirectionalLight {
-                position: Point3::new(-15.711648, 30.986532, 10.896686),
+                position: Point3::new(-10.3791118, 40.3532805, -30.0466344),
                 center: Point3::new(100.0, 100.0, 100.0),
                 color: [1.0, 1.0, 1.0, 1.0],
             })),
             Arc::new(Mutex::new(DirectionalLight {
-                position: Point3::new(-0.19470568, -2.1034627, -0.34011033),
+                position: Point3::new(0.0, 0.1, -0.3),
                 center: Point3::new(100.0, 100.0, 100.0),
                 color: [1.0, 1.0, 1.0, 1.0],
             })),],
@@ -89,11 +89,11 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     let mesh = obj_to_mesh_converter.create_mesh();
     let mut obj = Object3D::new();
     obj.mesh = mesh;
-    obj.material.diffuse_file_path = "./src/sphere/basecolor2.png".into();
-    obj.material.normal_file_path = "./src/sphere/normal2.png".into();
-    obj.material.metallic_file_path = "./src/sphere/metallic2.png".into();
-    obj.material.roughness_file_path = "./src/sphere/roughness2.png".into();
-    obj.material.ao_file_path = "./src/sphere/ao2.png".into();
+    obj.material.diffuse_file_path = "./src/sphere/basecolor.jpg".into();
+    obj.material.normal_file_path = "./src/sphere/normal.jpg".into();
+    obj.material.metallic_file_path = "./src/sphere/metallic.jpg".into();
+    obj.material.roughness_file_path = "./src/sphere/roughness.jpg".into();
+    obj.material.ao_file_path = "./src/sphere/ao.jpg".into();
     obj.update_model_matrix();
     scene.objects.push(obj);
 

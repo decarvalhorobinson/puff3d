@@ -461,8 +461,9 @@ vec4 light() {
         vec3 L = normalize(lights.dir_lights[i].position);
         vec3 H = normalize(V + L);
         float distance = length(lights.dir_lights[i].position);
-        float attenuation = 1.0 / 1.0;//(1 * 0.06*distance + 0.05*(distance * distance));
-        vec3 radiance = vec3(1.0, 1.0, 1.0) * attenuation;
+        float attenuation = 1.0 / (distance*distance);//(1 * 0.06*distance + 0.05*(distance * distance));
+        vec3 light_color = vec3(1.0, 1.0, 1.0);
+        vec3 radiance = light_color * attenuation;
 
         // Cook-Torrance BRDF
         float NDF = distribution_ggx(N, H, roughness);   
@@ -497,7 +498,7 @@ vec4 light() {
     vec3 color = ambient + Lo;
 
     // HDR tonemapping
-    color = color / (color + vec3(1.0));
+    //color = color / (color + vec3(1.0));
     // gamma correct
     color = pow(color, vec3(1.0/2.2)); 
 
@@ -521,7 +522,7 @@ void main() {
 
     float shadow = shadow_calculation(radiance);
 
-    f_color = light() * (1 - shadow);
+    f_color = light();// * (1 - shadow);
 
     //f_color.rgb = in_roughness;
 

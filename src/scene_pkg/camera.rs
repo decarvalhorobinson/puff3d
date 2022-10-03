@@ -39,7 +39,7 @@ pub struct Camera {
     pub movement_speed: f32,
 }
 
-const SPEED: f32 = 0.025f32;
+const SPEED: f32 = 0.005f32;
 const SENSITIVTY: f32 = 0.25f32;
 const ZOOM: f32 = 72.0f32;
 
