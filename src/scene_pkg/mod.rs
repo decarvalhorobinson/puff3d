@@ -5,3 +5,4 @@ pub mod mesh;
 pub mod object3d;
 pub mod scene;
 pub mod transform;
+pub mod volume;

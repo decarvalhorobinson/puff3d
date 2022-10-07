@@ -45,11 +45,11 @@ const ZOOM: f32 = 72.0f32;
 
 impl Camera {
     pub fn new() -> Camera {
-        let position = Point3::new(-40.0, 20.0, 20.0);
+        let position = Point3::new(-2.966995, 3.838824, 1.1097854);
         let last_position = Point3::new(-10.0, 10.0, 0.0);
         let world_up_direction = Vector3::new(0.0, -1.0, 0.0);
         let pitch_yaw_roll = Vector3::new(0.0, 0.0, 0.0);
-        let target = Point3::new(0.0, 0.0, -1.0);
+        let target = Point3::new(0.65475243, -0.7313537, -0.19084294);
         let movement_speed = SPEED;
         let mouse_sensitivity = SENSITIVTY;
         let field_of_view = ZOOM;

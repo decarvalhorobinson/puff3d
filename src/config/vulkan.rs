@@ -179,11 +179,11 @@ pub fn vulkan_init() {
     let mut fps = 0.0;
     let mut counter = 0;
 
-    surface.window().set_cursor_visible(false);
+    //surface.window().set_cursor_visible(false);
     let mut input_handler = Input::new();
     event_loop.run(move |event, _, control_flow| {
         if input_handler.update(&event) {
-            _ = surface.window().set_cursor_position(LogicalPosition::new(0.5, 0.5));
+            //_ = surface.window().set_cursor_position(LogicalPosition::new(0.5, 0.5));
 
             // calculate delta time
             let current_frame = Instant::now();

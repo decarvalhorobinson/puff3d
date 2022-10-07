@@ -88,9 +88,10 @@ impl LightingPass {
         metallic_image: Arc<dyn ImageViewAbstract + 'static>,
         roughness_image: Arc<dyn ImageViewAbstract + 'static>,
         ao_image: Arc<dyn ImageViewAbstract + 'static>,
+        volume_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> SecondaryAutoCommandBuffer {
         let (light_view, light_projection) = self.dir_lights[0].lock().unwrap().clone().view_projection();
-        println!("{:?}", camera_pos);
+        println!("pos: {:?}", camera_pos);
         let push_constants_fs;
         {
             let dir_light_locked = self.dir_lights[0].lock().unwrap();
@@ -119,6 +120,7 @@ impl LightingPass {
                 LightingPass::create_image_set(self.gfx_queue.clone(), 4, metallic_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 5, roughness_image.clone()),
                 LightingPass::create_image_set(self.gfx_queue.clone(), 6, ao_image.clone()),
+                LightingPass::create_image_set(self.gfx_queue.clone(), 7, volume_image.clone()),
                 self.create_lights_set()
             ],
         )
@@ -203,7 +205,7 @@ impl LightingPass {
             self.buffers.lights_buffer.from_data(uniform_data).unwrap()
         };
 
-        WriteDescriptorSet::buffer(7, uniform_buffer_subbuffer)
+        WriteDescriptorSet::buffer(8, uniform_buffer_subbuffer)
     }
 
     fn create_shadow_image_set(
@@ -328,11 +330,12 @@ layout(set = 0, binding = 3) uniform sampler2D u_normals;
 layout(set = 0, binding = 4) uniform sampler2D u_metallic;
 layout(set = 0, binding = 5) uniform sampler2D u_roughness;
 layout(set = 0, binding = 6) uniform sampler2D u_ao;
+layout(set = 0, binding = 7) uniform sampler2D u_volume;
 struct DirectionalLight {
     vec3 position;
 };
 
-layout(set = 0, binding = 7) uniform Lights {
+layout(set = 0, binding = 8) uniform Lights {
     DirectionalLight[4] dir_lights;
 } lights;
 
@@ -437,6 +440,7 @@ vec4 light() {
     vec3 in_metallic = texture(u_metallic, coord).rgb;
     vec3 in_roughness = texture(u_roughness, coord).rgb;
     vec3 in_ao = texture(u_ao, coord).rgb;
+    
 
     float metallic = in_metallic.r;
     float roughness = in_roughness.r;
@@ -514,6 +518,7 @@ void main() {
     vec3 in_metallic = texture(u_metallic, coord).rgb;
     vec3 in_roughness = texture(u_roughness, coord).rgb;
     vec3 in_ao = texture(u_ao, coord).rgb;
+    vec3 in_volume = texture(u_volume, coord).rgb;
 
     in_normal = in_normal * 2 - 1;
     vec4 light_to_world = normalize(push_constants.direction);
@@ -524,7 +529,7 @@ void main() {
 
     f_color = light();// * (1 - shadow);
 
-    //f_color.rgb = in_roughness;
+    f_color.rgb = in_volume;
 
     
 }",

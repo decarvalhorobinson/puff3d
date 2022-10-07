@@ -77,6 +77,7 @@ impl LightingRenderer {
         metallic_image: Arc<dyn ImageViewAbstract + 'static>,
         roughness_image: Arc<dyn ImageViewAbstract + 'static>,
         ao_image: Arc<dyn ImageViewAbstract + 'static>,
+        volume_image: Arc<dyn ImageViewAbstract + 'static>,
     ) {
         let view;
         let world;
@@ -86,6 +87,7 @@ impl LightingRenderer {
             world = scene_locked.world_model;
             view = scene_locked.active_camera.get_view_matrix();
             camera_pos = scene_locked.active_camera.position.to_homogeneous();
+            println!("target: {:?}", scene_locked.active_camera.target);
             
         }
 
@@ -100,7 +102,8 @@ impl LightingRenderer {
             normals_image.clone(),
             metallic_image.clone(),
             roughness_image.clone(),
-            ao_image.clone());
+            ao_image.clone(),
+            volume_image.clone());
         self.execute_draw_pass(cb);
     }
 

@@ -3,10 +3,10 @@ use std::sync::{Arc, Mutex};
 use cgmath::{Matrix4, Point3, SquareMatrix, Vector3};
 
 use crate::{
-    object_3d_loader::mesh_converters::ObjFileToMeshConverter,
+    object_3d_loader::{mesh_converters::ObjFileToMeshConverter, dicom_loader::load_dicom_file_to_volume},
     scene_pkg::{
         camera::Camera, directional_light::DirectionalLight, mesh::Mesh, object3d::Object3D,
-        scene::Scene,
+        scene::Scene, volume::Volume,
     },
 };
 
@@ -21,6 +21,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
         cameras: vec![],
         active_camera: Camera::new(),
         objects: vec![],
+        volumes: vec![],
         world_model: Matrix4::identity(),
         directional_lights: vec![
             Arc::new(Mutex::new(DirectionalLight {
@@ -45,6 +46,31 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
             })),],
     };
 
+    //load_dicom_file_to_volume();
+    let mut volume = Volume::new();
+    volume.pixel_data = vec![
+        65535,65535,65535,65535,
+        65535,0,0,65535,
+        65535,0,0,65535,
+        65535,65535,65535,65535,
+
+        65535,65535,65535,65535,
+        65535,0,0,65535,
+        65535,0,0,65535,
+        65535,65535,65535,65535,
+
+        65535,65535,65535,65535,
+        65535,0,0,65535,
+        65535,0,0,65535,
+        65535,65535,65535,65535,
+
+        65535,65535,65535,65535,
+        65535,0,0,65535,
+        65535,0,0,65535,
+        65535,65535,65535,65535,
+        ];
+    volume.dimension = [4,4,4];
+    scene.volumes.push(load_dicom_file_to_volume());
 
     let obj_to_mesh_converter =
         ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
@@ -83,7 +109,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.material.ao_file_path = "./src/sphere/ao.png".into();
     obj.update_model_matrix();
     scene.objects.push(obj);*/
-
+    /* 
     let obj_to_mesh_converter =
     ObjFileToMeshConverter::new(String::from("./src/sphere/sphere.obj"));
     let mesh = obj_to_mesh_converter.create_mesh();
@@ -96,6 +122,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.material.ao_file_path = "./src/sphere/ao.jpg".into();
     obj.update_model_matrix();
     scene.objects.push(obj);
+    */
 
     std::sync::Arc::new(Mutex::new(scene))
 }

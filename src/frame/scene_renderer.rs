@@ -13,6 +13,7 @@ use super::{
     deferred_pass::deferred_map_renderer::DeferredMapRenderer,
     lighting_pass::lighting_renderer::LightingRenderer,
     shadow_pass::shadow_map_renderer::ShadowMapRenderer,
+    volume_pass::volume_map_renderer::VolumeMapRenderer,
 };
 
 pub struct SceneRenderer {
@@ -20,6 +21,7 @@ pub struct SceneRenderer {
     shadow_map_renderer: ShadowMapRenderer,
     deferred_map_renderer: DeferredMapRenderer,
     lighting_renderer: LightingRenderer,
+    volume_map_renderer: VolumeMapRenderer,
 
     rotation_light: f32,
 }
@@ -34,12 +36,15 @@ impl SceneRenderer {
         let deferred_map_renderer = DeferredMapRenderer::new(gfx_queue.clone(), scene.clone());
         let lighting_renderer =
             LightingRenderer::new(gfx_queue.clone(), scene.clone(), swapchain_image_format);
+        let volume_map_renderer =
+            VolumeMapRenderer::new(gfx_queue.clone(), scene.clone());
 
         SceneRenderer {
             scene,
             shadow_map_renderer,
             deferred_map_renderer,
             lighting_renderer,
+            volume_map_renderer,
             rotation_light: 0.0,
         }
     }
@@ -50,13 +55,7 @@ impl SceneRenderer {
         final_image: Arc<dyn ImageViewAbstract + 'static>,
         delta_time: u128,
         input: &Input
-    ) -> vulkano::command_buffer::CommandBufferExecFuture<
-        vulkano::command_buffer::CommandBufferExecFuture<
-            vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer>,
-            PrimaryAutoCommandBuffer,
-        >,
-        PrimaryAutoCommandBuffer,
-    > {
+    ) -> vulkano::command_buffer::CommandBufferExecFuture<vulkano::command_buffer::CommandBufferExecFuture<vulkano::command_buffer::CommandBufferExecFuture<vulkano::command_buffer::CommandBufferExecFuture<F, PrimaryAutoCommandBuffer>, PrimaryAutoCommandBuffer>, PrimaryAutoCommandBuffer>, PrimaryAutoCommandBuffer> {
 
         self.process_input(&input, delta_time);
 
@@ -70,6 +69,12 @@ impl SceneRenderer {
             .deferred_map_renderer
             .end_render_pass(shadow_future.unwrap());
 
+        self.volume_map_renderer.begin_render_pass();
+        self.volume_map_renderer.draw();
+        let volume_future = self
+            .volume_map_renderer
+            .end_render_pass(deferred_future);
+
         self.lighting_renderer
             .begin_render_pass(final_image.clone());
         self.lighting_renderer.draw(
@@ -79,9 +84,10 @@ impl SceneRenderer {
             self.deferred_map_renderer.normals_image.clone(),
             self.deferred_map_renderer.mettalic_image.clone(),
             self.deferred_map_renderer.roughness_image.clone(),
-            self.deferred_map_renderer.ao_image.clone()
+            self.deferred_map_renderer.ao_image.clone(),
+            self.volume_map_renderer.final_image.clone()
         );
-        let lighting_future = self.lighting_renderer.end_render_pass(deferred_future);
+        let lighting_future = self.lighting_renderer.end_render_pass(volume_future);
         lighting_future
     }
 
