@@ -72,6 +72,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     volume.dimension = [4,4,4];
     scene.volumes.push(load_dicom_file_to_volume());
 
+    /* 
     let obj_to_mesh_converter =
         ObjFileToMeshConverter::new(String::from("./src/brick_wall/brick_wall.obj"));
     let mut obj = Object3D::new();
@@ -84,6 +85,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
 
     obj.update_model_matrix();
     scene.objects.push(obj);
+    */
 
     /*let mut obj = Object3D::new();
     obj.mesh = get_example_mesh_cottage_house();
@@ -109,7 +111,8 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.material.ao_file_path = "./src/sphere/ao.png".into();
     obj.update_model_matrix();
     scene.objects.push(obj);*/
-    /* 
+     
+    /*
     let obj_to_mesh_converter =
     ObjFileToMeshConverter::new(String::from("./src/sphere/sphere.obj"));
     let mesh = obj_to_mesh_converter.create_mesh();
@@ -123,6 +126,7 @@ pub fn get_example_scene_cottage_house() -> std::sync::Arc<Mutex<Scene>> {
     obj.update_model_matrix();
     scene.objects.push(obj);
     */
+    
 
     std::sync::Arc::new(Mutex::new(scene))
 }

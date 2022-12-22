@@ -1,4 +1,4 @@
-use cgmath::{Matrix4, Rad, SquareMatrix, Vector3};
+use cgmath::{Matrix4, Rad, SquareMatrix, Vector3, Deg};
 
 use super::{material::Material, mesh::Mesh, transform::Transform};
 
@@ -31,6 +31,13 @@ impl Volume {
 
     pub fn update_model_matrix(&mut self) {
         let mut model = Matrix4::identity();
+        
+        model = model
+            * Matrix4::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), Deg(self.transform.rotation.x));
+        model = model
+            * Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Deg(self.transform.rotation.y));
+        model = model
+            * Matrix4::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Deg(self.transform.rotation.z));
         model = model * Matrix4::from_translation(self.transform.position);
         model = model
             * Matrix4::from_nonuniform_scale(
@@ -38,12 +45,6 @@ impl Volume {
                 self.transform.scale.y,
                 self.transform.scale.z,
             );
-        model = model
-            * Matrix4::from_axis_angle(Vector3::new(1.0, 0.0, 0.0), Rad(self.transform.rotation.x));
-        model = model
-            * Matrix4::from_axis_angle(Vector3::new(0.0, 1.0, 0.0), Rad(self.transform.rotation.y));
-        model = model
-            * Matrix4::from_axis_angle(Vector3::new(0.0, 0.0, 1.0), Rad(self.transform.rotation.z));
 
         self.model_matrix = model;
     }

@@ -45,7 +45,7 @@ const ZOOM: f32 = 72.0f32;
 
 impl Camera {
     pub fn new() -> Camera {
-        let position = Point3::new(-2.966995, 3.838824, 1.1097854);
+        let position = Point3::new(-2.966995, 0.0, 1.1097854);
         let last_position = Point3::new(-10.0, 10.0, 0.0);
         let world_up_direction = Vector3::new(0.0, -1.0, 0.0);
         let pitch_yaw_roll = Vector3::new(0.0, 0.0, 0.0);
@@ -88,8 +88,6 @@ impl Camera {
     pub fn process_mouse_movement(&mut self, mut x_offset: f32, mut y_offset: f32) {
         x_offset *= self.mouse_sensitivity;
         y_offset *= self.mouse_sensitivity;
-
-        println!("pitch: {:?}, yaw: {:?}",  self.pitch_yaw_roll.x, self.pitch_yaw_roll.y);
 
         //set pitch
         self.pitch_yaw_roll.x -= y_offset;

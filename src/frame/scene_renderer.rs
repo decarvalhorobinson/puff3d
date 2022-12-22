@@ -70,7 +70,7 @@ impl SceneRenderer {
             .end_render_pass(shadow_future.unwrap());
 
         self.volume_map_renderer.begin_render_pass();
-        self.volume_map_renderer.draw();
+        self.volume_map_renderer.draw(delta_time);
         let volume_future = self
             .volume_map_renderer
             .end_render_pass(deferred_future);

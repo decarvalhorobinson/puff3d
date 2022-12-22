@@ -91,7 +91,6 @@ impl LightingPass {
         volume_image: Arc<dyn ImageViewAbstract + 'static>,
     ) -> SecondaryAutoCommandBuffer {
         let (light_view, light_projection) = self.dir_lights[0].lock().unwrap().clone().view_projection();
-        println!("pos: {:?}", camera_pos);
         let push_constants_fs;
         {
             let dir_light_locked = self.dir_lights[0].lock().unwrap();

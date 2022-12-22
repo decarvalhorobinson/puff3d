@@ -87,8 +87,6 @@ impl LightingRenderer {
             world = scene_locked.world_model;
             view = scene_locked.active_camera.get_view_matrix();
             camera_pos = scene_locked.active_camera.position.to_homogeneous();
-            println!("target: {:?}", scene_locked.active_camera.target);
-            
         }
 
         let cb = self.lighting_pass.draw(

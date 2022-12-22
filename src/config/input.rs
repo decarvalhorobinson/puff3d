@@ -50,7 +50,7 @@ impl Input {
                 event: DeviceEvent::Key(input),
                 ..
             } => {
-                self.handle_keyboard_input(input.virtual_keycode.unwrap(), input.state);
+                self.handle_keyboard_input(input.virtual_keycode.unwrap_or_else(|| VirtualKeyCode::F19), input.state);
             }
             Event::RedrawEventsCleared => {
                 redraw = true;

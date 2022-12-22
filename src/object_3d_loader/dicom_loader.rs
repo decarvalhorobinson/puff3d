@@ -1,3 +1,4 @@
+use cgmath::Vector3;
 use dicom::object::open_file;
 use dicom::pixeldata::PixelDecoder;
 
@@ -7,8 +8,8 @@ use crate::scene_pkg::volume::Volume;
 pub fn load_dicom_file_to_volume() -> Volume {
 
     let mut volume = Volume::new();
-    for n in 0..25  {
-        let  path = format!("./src/series-00000/image-000{}.dcm", n);
+    for n in 1001..1246  {
+        let  path = format!("./src/Head/vhm.{}.dcm", n);
         let obj = open_file(path).unwrap();
         let pixel_data = obj.decode_pixel_data().unwrap();
         let columns = pixel_data.columns();
@@ -23,7 +24,7 @@ pub fn load_dicom_file_to_volume() -> Volume {
         
 
     }
-    for n in 0..70  {
+    for n in 0..267  {
     
         for n in 0..volume.dimension[0]*volume.dimension[1] {
             volume.pixel_data.push(0);
@@ -31,5 +32,7 @@ pub fn load_dicom_file_to_volume() -> Volume {
         volume.dimension[2] += 1;
     }
     println!("resolution: {:?}", volume.dimension);
+    //volume.transform.rotation = Vector3::new(90.0, 90.0, 00.0);
+    volume.update_model_matrix();
     volume
 }

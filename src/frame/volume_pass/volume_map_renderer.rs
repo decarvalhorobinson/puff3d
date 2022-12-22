@@ -115,8 +115,7 @@ impl VolumeMapRenderer {
         }
     }
 
-    pub fn draw(&mut self) {
-        let projection = Scene::projection(self.viewport_dimensions());
+    pub fn draw(&mut self, delta_time: u128) {
         let view;
         let world;
         let eye_pos;
@@ -132,7 +131,8 @@ impl VolumeMapRenderer {
                 self.framebuffer.clone().unwrap().extent(),
                 world, 
                 view, 
-                eye_pos
+                eye_pos,
+                delta_time
             );
             self.execute_draw_pass(cb);
         }

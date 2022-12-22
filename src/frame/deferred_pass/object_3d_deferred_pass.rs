@@ -263,11 +263,6 @@ impl Object3DDeferredPass {
     ) -> Arc<PersistentDescriptorSet> {
         let (map, _future) = {
             let img = ImageReader::open(path.clone()).unwrap().decode().unwrap();
-            
-            println!("{:?}", path.clone());
-            println!("{:?}", img.color());
-            println!("{:?}", format);
-            println!("-----------");
             let img_rgba8 = img.to_rgba8();
 
             let dim = img.dimensions();
