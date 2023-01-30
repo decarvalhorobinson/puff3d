@@ -35,6 +35,7 @@ use crate::scene_pkg::volume::Volume;
 #[derive(Clone)]
 struct Buffers {
     vertex_buffer: Arc<CpuAccessibleBuffer<[Vertex]>>,
+    lights_buffer: CpuBufferPool<fs::ty::Lights>,
 }
 
 pub struct VolumePass {
@@ -63,12 +64,14 @@ impl VolumePass {
 
         let volume_write_set = VolumePass::create_volume_set(pipeline.clone(), gfx_queue.clone(), volume.clone());
 
+        let lights_write_set = VolumePass::create_lights_set(buffers.clone());
+
         let transfer_write_image_set = VolumePass::create_transfer_image(pipeline.clone(), gfx_queue.clone());
 
         let layout = pipeline.layout().set_layouts().get(0).unwrap();
         let volume_set = PersistentDescriptorSet::new(
             layout.clone(),
-            [volume_write_set, transfer_write_image_set],
+            [volume_write_set, transfer_write_image_set, lights_write_set],
         )
         .unwrap();
 
@@ -96,6 +99,7 @@ impl VolumePass {
     ) -> SecondaryAutoCommandBuffer {
         self.rotation += 0.05 * delta_time as f32;
         self.volume.transform.rotation = Vector3::new(90.0, self.rotation, 00.0);
+
         self.volume.update_model_matrix();
         let focal_length = 1.0 / Deg(72.0 / 2.0).tan();
         let push_constants_fs;
@@ -154,8 +158,8 @@ impl VolumePass {
         let dim2 = ImageDimensions::Dim2d { width: 1000, height: 1000, array_layers: 1 };
         let mut pixel_data: Vec<u8> = vec![];
 
-        let test = 900;
-        let factor = 5;
+        let test = 350;
+        let factor = 500;
 
         for h in 0..dim2.height()  {
     
@@ -167,7 +171,9 @@ impl VolumePass {
 
                 if w > test && w <= test + factor{
                     red = 255;
-                    alpha = 150;
+                    green = 0;
+                    blue = 0;
+                    alpha = 255;
                 } else if w > test + factor * 2 && w <= test + factor * 3 {
                     //red = 255;
                     //alpha = 150;
@@ -239,6 +245,38 @@ impl VolumePass {
         write_descriptor
     }
 
+    fn create_lights_set(buffers: Buffers) -> WriteDescriptorSet {
+
+        let mut shader_lights: [fs::ty::PointLight; 3]= Default::default();
+        let shader_light = fs::ty::PointLight {
+            position: [1.0, 1.0, 1.0],
+            intensity: 1.0
+        };
+        shader_lights[0] = shader_light;
+        let shader_light = fs::ty::PointLight {
+            position: [-4.0, 0.0, 0.0],
+            intensity: 0.5
+        };
+        shader_lights[1] = shader_light;
+        let shader_light = fs::ty::PointLight {
+            position: [1.0, 1.0, -1.0],
+            intensity: 0.5
+        };
+        shader_lights[2] = shader_light;
+            
+        //descriptor set
+        let uniform_buffer_subbuffer = {
+            let uniform_data = fs::ty::Lights {
+                point_lights: shader_lights
+            };
+
+            buffers.lights_buffer.from_data(uniform_data).unwrap()
+        };
+
+        WriteDescriptorSet::buffer(2, uniform_buffer_subbuffer)
+    }
+
+
     fn create_pipeline(gfx_queue: Arc<Queue>, subpass: Subpass) -> Arc<GraphicsPipeline> {
         let vs = vs::load(gfx_queue.device().clone()).expect("failed to create shader module");
         let fs = fs::load(gfx_queue.device().clone()).expect("failed to create shader module");
@@ -289,7 +327,15 @@ impl VolumePass {
             .expect("failed to create buffer")
         };
 
-        Buffers { vertex_buffer }
+        let lights_buffer = CpuBufferPool::<fs::ty::Lights>::new(
+            gfx_queue.device().clone(),
+            BufferUsage {
+                uniform_buffer: true,
+                ..BufferUsage::empty()
+            },
+        );
+
+        Buffers { vertex_buffer, lights_buffer }
     }
 
 }
@@ -323,6 +369,13 @@ mod fs {
         ty: "fragment",
         src: "
 #version 450
+
+struct PointLight {
+    vec3 position;
+    float intensity;
+};
+
+
 layout(push_constant) uniform PushConstants {
     vec3 light_position;
     vec3 light_intensity;
@@ -336,6 +389,9 @@ layout(push_constant) uniform PushConstants {
 
 layout(set = 0, binding = 0) uniform sampler3D u_volume;
 layout(set = 0, binding = 1) uniform sampler2D u_transfer_image;
+layout(set = 0, binding = 2) uniform Lights {
+    PointLight[3] point_lights;
+} lights;
 
 layout(location = 0) in vec2 v_frag_pos;
 layout(location = 0) out vec4 f_color;
@@ -407,15 +463,6 @@ bool max_intensity_render(inout vec3 pos, inout float T, inout vec3 Lo, inout fl
     return false;
 }
 
-
-const vec3 lightPos = vec3(1.0, 1.0, 1.0);
-const vec3 lightColor = vec3(1.0, 1.0, 1.0);
-const float lightPower = 40.0;
-const vec3 ambientColor = vec3(0.1, 0.0, 0.0);
-const vec3 diffuseColor = vec3(0.5, 0.0, 0.0);
-const vec3 specColor = vec3(1.0, 1.0, 1.0);
-const float shininess = 130.0;
-
 vec4 transfer_color(float signal_intensity, float gradient_magnitude) {
     if (signal_intensity <= 0.0)
     {
@@ -427,15 +474,59 @@ vec4 transfer_color(float signal_intensity, float gradient_magnitude) {
     return color;
 }
 
+vec3 calculate_light(vec3 pos, vec3 ray, vec3 normal, vec4 material_colour, PointLight light) {
+
+    // Blinn-Phong shading
+    vec3 L = -normalize(light.position - pos);
+    //L = (push_constants.model * vec4(L,1.0)).xyz;
+    vec3 V = -normalize(ray);
+    vec3 N = normal;
+    N = (inverse(push_constants.model) * vec4(N,1.0)).xyz;
+    vec3 H = normalize(L + V);
+    
+
+    float Ia = 0.0;
+    float Id = 1.0 * max(0, dot(N, L));
+    float Is = 8.0 * pow(max(0, dot(N, H)), 600);
+    return ((Ia + Id) * material_colour.xyz * light.intensity + Is * vec3(1.0)) * material_colour.a * light.intensity;
+}
+
+vec3 subsurface_scattering(vec3 pos, PointLight light) {
+    vec3 result = vec3(0);
+    vec3 lighPos = light.position;
+    vec3 lightDir = pos - lighPos;
+    vec3 step = lightDir / float(numSamples);
+    
+    vec3 currentPos = lighPos;
+    float scatterDistance = 1.0;
+
+    int countApplyColor = 0;
+    for (int i=0; i < numSamples + 1; ++i, currentPos += step) {
+        
+        float density = texture(u_volume, currentPos).x;
+        vec4 baseColor = transfer_color(density, 0);
+        if(baseColor.a < 0.00005)
+        {
+            currentPos += step;
+            continue;
+        }
+        countApplyColor++;
+        float distance = distance(currentPos, lighPos);
+        float attenuation = exp(-scatterDistance * distance);
+        result += attenuation * baseColor.xyz;
+        
+    }
+
+    return result / float(countApplyColor);
+}
+
 bool vr_render(inout vec3 pos, inout float T, inout vec3 Lo, inout vec3 normal, vec3 ray, vec3 step) {
     float density = texture(u_volume, pos).x * densityFactor;
     vec4 material_colour = transfer_color(texture(u_volume, pos).x, 0);
-    if (material_colour.a < 0.0000000005)
+    if (material_colour.a < 0.005)
     {
         return false;
     }
-
-    vec3 lightDir = normalize(push_constants.light_position-pos)*lscale;
 
     //calculate normals
     float pos_relative = 1.0/512.0;
@@ -454,20 +545,14 @@ bool vr_render(inout vec3 pos, inout float T, inout vec3 Lo, inout vec3 normal, 
     float gz = density_z_plus - density_z_minus;
 
     normal = normalize(vec3(gx, gy, gz));    
-
-    // Blinn-Phong shading
-    vec3 L = -normalize(push_constants.light_position - pos);
-    //L = (push_constants.model * vec4(L,1.0)).xyz;
-    vec3 V = -normalize(ray);
-    vec3 N = normal;
-    N = (inverse(push_constants.model) * vec4(N,1.0)).xyz;
-    vec3 H = normalize(L + V);
     
+    Lo += calculate_light(pos, ray, normal, material_colour, lights.point_lights[0]);
+    Lo += calculate_light(pos, ray, normal, material_colour, lights.point_lights[1]);
+    Lo += calculate_light(pos, ray, normal, material_colour, lights.point_lights[2]);
 
-    float Ia = 0.1;
-    float Id = 1.0 * max(0, dot(N, L));
-    float Is = 8.0 * pow(max(0, dot(N, H)), 600);
-    Lo += ((Ia + Id) * material_colour.xyz + Is * vec3(1.0)) * material_colour.a;
+    //Lo = subsurface_scattering(pos, lights.point_lights[0]);
+    // Lo = subsurface_scattering(pos, lights.point_lights[1]);
+    //Lo = subsurface_scattering(pos, lights.point_lights[2]);
     
     T -= material_colour.a;
     if (T <= 0.0)
@@ -552,7 +637,7 @@ void main()
     vec3 rayDirection;
     rayDirection.xy = 2.0 * gl_FragCoord.xy / push_constants.window_size - 1.0;
     rayDirection.z = -push_constants.focal_length;
-    rayDirection = (vec4(rayDirection, 0) * push_constants.model_view).xyz;
+    rayDirection = (push_constants.model_view * vec4(rayDirection, 0)).xyz;
 
     vec3 origin = push_constants.ray_origin;
 
